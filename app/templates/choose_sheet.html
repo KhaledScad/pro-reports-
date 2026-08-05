@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}{{ t('select_sheet') }} - Proactive Reporting{% endblock %}
+{% block content %}
+<h2>{{ t('select_sheet') }}</h2>
+<div class="card">
+  <p class="muted">{{ filename }}</p>
+  <form method="post" action="/admin/upload/{{ kind|lower }}/confirm">
+    <input type="hidden" name="token" value="{{ token }}" />
+    <label for="sheet">{{ t('select_sheet') }}</label>
+    <select id="sheet" name="sheet">
+      <option value="__ALL__">{{ t('all_sheets') }}</option>
+      {% for s in sheet_names %}<option value="{{ s }}">{{ s }}</option>{% endfor %}
+    </select>
+    <div class="inline-actions">
+      <button type="submit" class="btn">{{ t('confirm_import') }}</button>
+      <a class="btn ghost" href="/admin">{{ t('cancel') }}</a>
+    </div>
+  </form>
+</div>
+{% endblock %}

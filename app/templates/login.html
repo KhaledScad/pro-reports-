@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}{{ t('login_title') }} - {{ t('app_title') }}{% endblock %}
+{% block content %}
+<div class="center-card">
+  <div class="card">
+    <h2>{{ t('login_title') }}</h2>
+    <p class="muted">{{ t('login_text') }}</p>
+    {% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
+    <form method="post" action="/login">
+      <label for="username">{{ t('username') }}</label>
+      <input id="username" name="username" type="text" autocomplete="username" required />
+      <label for="password">{{ t('password') }}</label>
+      <input id="password" name="password" type="password" autocomplete="current-password" required />
+      <button type="submit" class="btn full">{{ t('login_btn') }}</button>
+    </form>
+    <div class="notice" style="margin-top:16px;">
+      Default bootstrap account (until an Account Excel is uploaded by an admin):<br />
+      <code>admin / Admin@123</code>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}{{ survey_type }} - Proactive Reporting{% endblock %}
+{% block content %}
+<h2>{{ survey_type }} &mdash; {{ survey_labels[survey_type] }}</h2>
+<div class="notice">Calculation logic for {{ survey_type }} is not implemented yet &mdash; this page uploads, stores, and browses the raw record fields only, same as QES/FISQ's Excel intake.</div>
+
+<div class="card">
+  <form method="get" action="/survey/{{ survey_type|lower }}" class="search-form">
+    <label for="frame_id">{{ t('frame_id') }}</label>
+    <input id="frame_id" name="frame_id" list="frameOptions" value="{{ frame_id }}" placeholder="{{ t('frame_id') }}" required />
+    <datalist id="frameOptions">{% for f in frame_options %}<option value="{{ f }}"></option>{% endfor %}</datalist>
+    <button type="submit" class="btn">{{ t('search_calc') }}</button>
+  </form>
+</div>
+
+{% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
+
+{% if raw_fields %}
+<div class="card">
+  <h3>Record fields</h3>
+  <div class="fields-grid">
+    {% for k, v in raw_fields.items() %}
+    <div class="field"><span>{{ k }}</span><strong>{{ v }}</strong></div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+{% endblock %}

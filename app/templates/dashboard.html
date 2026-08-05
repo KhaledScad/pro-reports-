@@ -1,0 +1,90 @@
+{% extends "base.html" %}
+{% block title %}{{ t('nav_home') }} - {{ t('app_title') }}{% endblock %}
+{% block content %}
+
+<div class="card">
+  <h3>{{ t('your_access') }}</h3>
+  <p class="muted">
+    {{ t('welcome') }}, <strong>{{ user.name or user.username }}</strong> &middot;
+    <span class="pill pill-{{ user.authorization|lower }}">{{ user.authorization }}</span>
+    {% if user.job %} &middot; {{ t('job') }}: {{ user.job }}{% endif %}
+  </p>
+
+  <div class="grid grid-2" style="margin-top:14px;">
+    {% for a in access %}
+    <div class="access-project">
+      <div class="access-project-head">
+        <strong>{{ t('project') }}: {{ a.type }}</strong>
+        <span class="muted small">{{ a.label }}</span>
+      </div>
+      <div class="inline-actions">
+        <a class="btn small" href="/survey/{{ a.type|lower }}">{{ t('calculations') }}</a>
+        <a class="btn small ghost" href="/compare/{{ a.type|lower }}">{{ t('comparison') }}</a>
+      </div>
+      <div class="chip-label">{{ t('assigned_frame_ids') }} ({{ a.frame_ids|length }})</div>
+      {% if a.frame_ids %}
+      <div class="chip-list">
+        {% for f in a.frame_ids %}<span class="chip">{{ f }}</span>{% endfor %}
+      </div>
+      {% else %}
+      <p class="muted small">{{ t('no_frame_ids') }}</p>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+{% if is_admin %}
+<div class="card">
+  <h3>{{ t('nav_admin') }}</h3>
+  <a class="btn" href="/admin">{{ t('open_admin') }}</a>
+</div>
+{% endif %}
+
+<div class="card hero-card">
+  <span class="hero-badge">{{ t('app_title') }}</span>
+  <h2>{{ t('workspace_title') }}</h2>
+  <p class="muted">{{ t('workspace_desc') }}</p>
+</div>
+
+<div class="grid grid-3">
+  <div class="card">
+    <h3>{{ t('calculations') }}</h3>
+    <p class="muted">{{ t('feature_calc_desc') }}</p>
+  </div>
+  <div class="card">
+    <h3>{{ t('project_comparison') }}</h3>
+    <p class="muted">{{ t('feature_compare_desc') }}</p>
+  </div>
+  <div class="card">
+    <h3>{{ t('access_control') }}</h3>
+    <p class="muted">{{ t('feature_access_desc') }}</p>
+  </div>
+</div>
+
+<div class="card accent-card">
+  <h3>{{ t('tool_purpose') }}</h3>
+  <p class="muted">{{ t('tool_purpose_desc') }}</p>
+</div>
+
+<div class="card">
+  <h3>{{ t('about_scad') }}</h3>
+  <p class="muted">{{ t('about_scad_desc') }}</p>
+</div>
+
+<div class="card">
+  <h3>{{ t('scad_mandate') }}</h3>
+  <p class="muted">{{ t('scad_mandate_desc') }}</p>
+</div>
+
+<div class="grid grid-2">
+  <div class="card">
+    <h3>{{ t('vision') }}</h3>
+    <p class="muted">{{ t('vision_desc') }}</p>
+  </div>
+  <div class="card">
+    <h3>{{ t('mission') }}</h3>
+    <p class="muted">{{ t('mission_desc') }}</p>
+  </div>
+</div>
+{% endblock %}

@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}QES comparison - {{ t('app_title') }}{% endblock %}
+{% block content %}
+<h2>QES &mdash; {{ t('comparison') }}</h2>
+<div class="sub-nav">
+  <a href="/survey/qes?frame_id={{ frame_id }}">{{ t('calculations') }}</a>
+  <a class="active" href="/compare/qes?frame_id={{ frame_id }}">{{ t('comparison') }}</a>
+</div>
+<p class="muted">{{ t('trend_hint') }}</p>
+
+<div class="card">
+  <form method="get" action="/compare/qes" class="search-form">
+    <label for="frame_id">{{ t('frame_id') }}</label>
+    <select id="frame_id" name="frame_id" required>
+      <option value="" disabled {{ "selected" if not frame_id }}>{{ t('frame_id') }}</option>
+      {% for f in frame_options %}<option value="{{ f }}" {{ "selected" if f == frame_id }}>{{ f }}</option>{% endfor %}
+    </select>
+    {% if all_periods %}
+    <div class="period-box">
+      <div class="period-col">
+        <strong>{{ t('periods_to_compare') }}</strong>
+        {% for p in all_periods %}
+        <label class="radio-row"><input type="checkbox" name="periods" value="{{ p }}" {{ "checked" if p in selected_periods }}> {{ p|period_label(lang) }}</label>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    <button type="submit" class="btn">{{ t('compare_btn') }}</button>
+  </form>
+</div>
+
+{% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
+
+{% if meta %}
+<div class="card">
+  <h3>{{ t('record') }}</h3>
+  <div class="fields-grid">
+    <div class="field"><span>{{ t('frame_id') }}</span><strong>{{ meta.frame_id }}</strong></div>
+    <div class="field"><span>{{ t('establishment') }}</span><strong>{{ meta.establishment_name or '-' }}</strong></div>
+    <div class="field"><span>{{ t('isic4') }}</span><strong>{{ meta.isic4 or '-' }}</strong></div>
+    <div class="field"><span>{{ t('activity_type') }}</span><strong>{{ meta.activity_type or '-' }}</strong></div>
+    <div class="field"><span>{{ t('auditor') }}</span><strong>{{ meta.auditor_name or meta.auditor_username or '-' }}</strong></div>
+    <div class="field"><span>{{ t('enumerator') }}</span><strong>{{ meta.enumerator_name or meta.enumerator_username or '-' }}</strong></div>
+    <div class="field"><span>{{ t('supervisor_username') }}</span><strong>{{ meta.supervisor_username or '-' }}</strong></div>
+  </div>
+</div>
+{% endif %}
+
+{% if calcs %}
+<div class="card">
+  <h3>{{ t('financial_comparison') }}</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>{{ t('period') }}</th><th>{{ t('revenue') }}</th><th>{{ t('expenditure') }}</th><th>{{ t('profit') }}</th><th>{{ t('added_value') }}</th><th>IC</th><th>{{ t('profit_pct') }}</th><th>{{ t('av_pct') }}</th><th>{{ t('ic_pct') }}</th></tr></thead>
+      <tbody>
+        {% for c in calcs %}
+        {% set p = calcs[loop.index0 - 1] if not loop.first else None %}
+        <tr>
+          <td>{{ c.period|period_label(lang) }}</td>
+          <td class="{{ trend_cls(p.total_revenue if p else None, c.total_revenue) }}">{{ c.total_revenue|fmt }}</td>
+          <td class="{{ trend_cls(p.total_expenses if p else None, c.total_expenses) }}">{{ c.total_expenses|fmt }}</td>
+          <td class="{{ trend_cls(p.profit if p else None, c.profit) }}">{{ c.profit|fmt }}</td>
+          <td class="{{ trend_cls(p.added_value if p else None, c.added_value) }}">{{ c.added_value|fmt }}</td>
+          <td class="{{ trend_cls(p.intermediate_consumption if p else None, c.intermediate_consumption) }}">{{ c.intermediate_consumption|fmt }}</td>
+          <td>{{ c.profit_pct|pct }}</td><td>{{ c.av_pct|pct }}</td><td>{{ c.ic_pct|pct }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h3>{{ t('inventory_continuity') }}</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>{{ t('period') }}</th><th>{{ t('inventory_start') }}</th><th>{{ t('inventory_end') }}</th><th>{{ t('validation') }}</th></tr></thead>
+      <tbody>
+        {% for ir in inventory_rows %}
+        <tr>
+          <td>{{ ir.calc.period|period_label(lang) }}</td><td>{{ ir.calc.begin_inventory|fmt }}</td><td>{{ ir.calc.end_inventory|fmt }}</td>
+          <td class="{{ 'positive' if ir.ok else 'negative' }}">{{ 'Base period' if ir.is_base else ('Start equals previous end' if ir.ok else 'Mismatch: start must equal previous end') }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h3>{{ t('employee_comparison') }}</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>{{ t('period') }}</th><th>{{ t('employees') }}</th><th>{{ t('compensation') }}</th><th>{{ t('average_salary') }}</th><th>{{ t('expenditure') }}</th><th>{{ t('revenue') }}</th><th>{{ t('employee_change_count') }}</th><th>{{ t('employee_change_pct') }}</th></tr></thead>
+      <tbody>
+        {% for er in employee_rows %}
+        <tr>
+          <td>{{ er.calc.period|period_label(lang) }}</td><td>{{ er.calc.employees|fmt }}</td><td>{{ er.calc.employee_salary|fmt }}</td>
+          <td>{{ er.calc.average_salary|fmt }}</td><td>{{ er.calc.total_expenses|fmt }}</td><td>{{ er.calc.total_revenue|fmt }}</td>
+          <td class="{{ '' if er.is_base else ('trend-up' if er.change > 0 else 'trend-down' if er.change < 0 else 'trend-same') }}">{{ 'Base period' if er.is_base else er.change|fmt }}</td>
+          <td class="{{ '' if er.is_base else ('trend-up' if er.change > 0 else 'trend-down' if er.change < 0 else 'trend-same') }}">{{ '0%' if er.is_base else er.change_pct|pct }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+{% if chart %}
+<div class="card">
+  <h3>{{ t('trend_charts') }}</h3>
+  <div class="chart-toolbar">
+    <div class="chart-toolbar-label">{{ t('select_variable') }}</div>
+    <div class="var-chip-list" id="qesVarChecks">
+      {% for v in chart.variables %}
+      <label class="var-chip">
+        <input type="checkbox" value="{{ v.key }}" {{ "checked" if v.key in chart.default }}>
+        <span class="var-chip-dot"></span>
+        <span>{{ v.label }}</span>
+      </label>
+      {% endfor %}
+    </div>
+    <p class="muted small chart-toolbar-hint">{{ t('chart_multi_hint') }}</p>
+  </div>
+  <div class="chart-grid">
+    <div class="chart-box">
+      <h4>{{ t('bar_chart') }}</h4>
+      <div class="chart-legend" id="qesBarLegend"></div>
+      <div class="chart-canvas-wrap">
+        <svg id="qesBarChart" class="chart-svg"></svg>
+        <div class="chart-tooltip" id="qesBarTooltip" hidden></div>
+      </div>
+    </div>
+    <div class="chart-box">
+      <h4>{{ t('pulse_chart') }}</h4>
+      <div class="chart-legend" id="qesPulseLegend"></div>
+      <div class="chart-canvas-wrap">
+        <svg id="qesPulseChart" class="chart-svg"></svg>
+        <div class="chart-tooltip" id="qesPulseTooltip" hidden></div>
+      </div>
+    </div>
+  </div>
+</div>
+<script src="/static/charts.js"></script>
+<script>
+  initTrendCharts({
+    checklistId: "qesVarChecks",
+    barSvgId: "qesBarChart",
+    barTooltipId: "qesBarTooltip",
+    barLegendId: "qesBarLegend",
+    pulseSvgId: "qesPulseChart",
+    pulseTooltipId: "qesPulseTooltip",
+    pulseLegendId: "qesPulseLegend",
+    labels: {{ chart.labels|tojson }},
+    variables: {{ chart.variables|tojson }},
+    series: {{ chart.series|tojson }}
+  });
+</script>
+{% endif %}
+{% endblock %}

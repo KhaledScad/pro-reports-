@@ -1,0 +1,163 @@
+"""
+Shared helpers used by both the QES and FISQ calculation engines. This is a
+direct port of the final (v43/v45/v47) header-matching logic from the
+original HTML tool: columns can either be plain (`Total_Revenue`) or
+period-prefixed wide columns (`Q1_2026_Total_Revenue`), and lookups fall
+back from an exact prefixed match to a plain match.
+"""
+from __future__ import annotations
+
+import re
+from typing import Iterable
+
+_ARABIC_NORMALIZE = str.maketrans({
+    "إ": "ا", "أ": "ا", "آ": "ا",
+    "ة": "ه",
+    "ى": "ي",
+})
+
+_QUARTER_RE = re.compile(r"^(Q[1-4])_(\d{4})_", re.IGNORECASE)
+_QUARTER_ONLY_RE = re.compile(r"Q\s*([1-4])|([1-4])", re.IGNORECASE)
+
+
+def clean(v) -> str:
+    if v is None:
+        return ""
+    return str(v).replace("﻿", "").strip()
+
+
+def normalize_header(v) -> str:
+    s = clean(v).translate(_ARABIC_NORMALIZE).lower()
+    s = re.sub(r"[\s_\-.\\/()]+", "", s)
+    return s
+
+
+def to_num(v) -> float:
+    s = clean(v)
+    if s == "":
+        return 0.0
+    s = s.replace(",", "")
+    neg = False
+    if s.startswith("(") and s.endswith(")"):
+        neg = True
+        s = s[1:-1]
+    s = re.sub(r"[^0-9.\-]", "", s)
+    try:
+        n = float(s)
+    except ValueError:
+        return 0.0
+    return -n if neg else n
+
+
+def fmt(n) -> str:
+    try:
+        n = float(n or 0)
+    except (TypeError, ValueError):
+        n = 0.0
+    return f"{n:,.2f}".rstrip("0").rstrip(".") if n != int(n) else f"{int(n):,}"
+
+
+def pct(n) -> str:
+    return f"{fmt(n)}%"
+
+
+def row_keys(row: dict) -> list[str]:
+    return list(row.keys())
+
+
+def _key_matches_suffix(key: str, suffix: str) -> bool:
+    nk, ns = normalize_header(key), normalize_header(suffix)
+    return nk == ns or nk.endswith(ns)
+
+
+def find_key(row: dict, period: str | None, suffixes: Iterable[str]) -> str | None:
+    """Locate the column for `suffix` in `row`, preferring an exact
+    `{period}_{suffix}` match, then a period-prefixed fuzzy match, then a
+    bare (no-period) match."""
+    suffixes = list(suffixes) if not isinstance(suffixes, str) else [suffixes]
+    keys = row_keys(row)
+
+    if period:
+        for suffix in suffixes:
+            target = normalize_header(f"{period}_{suffix}")
+            for k in keys:
+                if normalize_header(k) == target:
+                    return k
+        prefix = normalize_header(period)
+        for suffix in suffixes:
+            for k in keys:
+                if normalize_header(k).startswith(prefix) and _key_matches_suffix(k, suffix):
+                    return k
+
+    for suffix in suffixes:
+        for k in keys:
+            if _key_matches_suffix(k, suffix):
+                return k
+    return None
+
+
+def text_val(row: dict, period: str | None, suffixes) -> str:
+    k = find_key(row, period, suffixes)
+    return clean(row[k]) if k else ""
+
+
+def num_val(row: dict, period: str | None, suffixes) -> float:
+    return to_num(text_val(row, period, suffixes))
+
+
+def get_periods(row: dict) -> list[str]:
+    """Extract every Q#_YYYY wide-column period present in this row's
+    headers, e.g. {'Q1_2026_Total_Revenue': ...} -> 'Q1_2026'."""
+    found = set()
+    for k in row_keys(row):
+        m = _QUARTER_RE.match(clean(k))
+        if m:
+            found.add(f"{m.group(1).upper()}_{m.group(2)}")
+
+    def sort_key(p: str):
+        m = re.match(r"Q([1-4])_(\d{4})", p)
+        return (int(m.group(2)), int(m.group(1))) if m else (0, 0)
+
+    return sorted(found, key=sort_key)
+
+
+def period_label(p: str, lang: str = "en") -> str:
+    m = re.match(r"^(Q[1-4])_(\d{4})$", p or "")
+    if not m:
+        return clean(p)
+    q, y = m.group(1), m.group(2)
+    n = q[1]
+    if lang == "ar":
+        names = {"1": "الربع الأول", "2": "الربع الثاني", "3": "الربع الثالث", "4": "الربع الرابع"}
+        return f"{names.get(n, q)} - {y}"
+    return f"Quarter {n} - {y}"
+
+
+def frame_id_of(row: dict) -> str:
+    for k in row_keys(row):
+        nk = normalize_header(k)
+        if nk in ("frameid", "frame"):
+            return clean(row[k])
+    return ""
+
+
+def record_meta(row: dict, period: str | None, lang: str = "en") -> dict:
+    """Common identifying fields shown above any QES/FISQ calculation."""
+    first, second = (["ISIC4_DESC_AR"], ["ISIC4_DESC_EN"]) if lang == "ar" else (["ISIC4_DESC_EN"], ["ISIC4_DESC_AR"])
+    act_first, act_second = (["ACTIVITY_TYPE_AR"], ["ACTIVITY_TYPE_EN"]) if lang == "ar" else (["ACTIVITY_TYPE_EN"], ["ACTIVITY_TYPE_AR"])
+    aud_first, aud_second = (["AUDITOR_NAME_AR"], ["AUDITOR_NAME_EN"]) if lang == "ar" else (["AUDITOR_NAME_EN"], ["AUDITOR_NAME_AR"])
+    enu_first, enu_second = (["ENUMERATOR_NAME_AR"], ["ENUMERATOR_NAME_EN"]) if lang == "ar" else (["ENUMERATOR_NAME_EN"], ["ENUMERATOR_NAME_AR"])
+    return {
+        "frame_id": frame_id_of(row),
+        "establishment_name": text_val(row, period, ["ESTABLISHMENT_NAME"]),
+        "isic4": text_val(row, period, ["ISIC4"]),
+        "isic4_desc": text_val(row, period, first) or text_val(row, period, second),
+        "activity_type": text_val(row, period, act_first) or text_val(row, period, act_second),
+        "auditor_name": text_val(row, period, aud_first) or text_val(row, period, aud_second),
+        "enumerator_name": text_val(row, period, enu_first) or text_val(row, period, enu_second),
+        "auditor_username": text_val(row, period, ["Auditor_User_Name", "Auditor_Username"]),
+        "enumerator_username": text_val(row, period, ["_ENUMERATOR_User_name", "ENUMERATOR_User_name", "Enumerator_User_Name"]),
+        "supervisor_username": text_val(row, period, ["Supervisor_USER_Name", "Supervisor_Username"]),
+        "year": text_val(row, period, ["YEAR"]),
+        "employee_number": text_val(row, period, ["Employee_Number", "TOTAL_EMPLOYEES"]),
+    }

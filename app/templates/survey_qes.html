@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}QES - {{ t('app_title') }}{% endblock %}
+{% block content %}
+<h2>QES &mdash; {{ survey_labels.QES }}</h2>
+<div class="sub-nav">
+  <a class="active" href="/survey/qes?frame_id={{ frame_id }}">{{ t('calculations') }}</a>
+  <a href="/compare/qes?frame_id={{ frame_id }}">{{ t('comparison') }}</a>
+</div>
+<p class="muted">{{ t('calc_hint') }}</p>
+
+<div class="card">
+  <form method="get" action="/survey/qes" class="search-form">
+    <label for="frame_id">{{ t('frame_id') }}</label>
+    <select id="frame_id" name="frame_id" required>
+      <option value="" disabled {{ "selected" if not frame_id }}>{{ t('frame_id') }}</option>
+      {% for f in frame_options %}<option value="{{ f }}" {{ "selected" if f == frame_id }}>{{ f }}</option>{% endfor %}
+    </select>
+
+    <label for="mode">{{ t('calc_mode') }}</label>
+    <select id="mode" name="mode">
+      <option value="single" {{ "selected" if mode == "single" }}>{{ t('one_quarter') }}</option>
+      <option value="compare" {{ "selected" if mode == "compare" }}>{{ t('compare_quarters') }}</option>
+    </select>
+
+    {% if periods %}
+    <div class="period-box">
+      <div class="period-col">
+        <strong>{{ t('single_quarter') }}</strong>
+        {% for p in periods %}
+        <label class="radio-row"><input type="radio" name="quarter" value="{{ p }}" {{ "checked" if (quarter == p) or (not quarter and loop.last) }}> {{ p|period_label(lang) }}</label>
+        {% endfor %}
+      </div>
+      <div class="period-col">
+        <strong>{{ t('periods_to_compare') }}</strong>
+        {% for p in periods %}
+        <label class="radio-row"><input type="checkbox" name="quarters" value="{{ p }}" {{ "checked" if p in (result.periods if result else quarters) }}> {{ p|period_label(lang) }}</label>
+        {% endfor %}
+      </div>
+    </div>
+    {% endif %}
+    <button type="submit" class="btn">{{ t('search_calc') }}</button>
+  </form>
+</div>
+
+{% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
+
+{% if meta %}
+<div class="card">
+  <h3>{{ t('record') }}</h3>
+  <div class="fields-grid">
+    <div class="field"><span>{{ t('frame_id') }}</span><strong>{{ meta.frame_id }}</strong></div>
+    <div class="field"><span>{{ t('establishment') }}</span><strong>{{ meta.establishment_name or '-' }}</strong></div>
+    <div class="field"><span>{{ t('isic4') }}</span><strong>{{ meta.isic4 or '-' }}</strong></div>
+    <div class="field"><span>{{ t('activity_type') }}</span><strong>{{ meta.activity_type or '-' }}</strong></div>
+    <div class="field"><span>{{ t('auditor') }}</span><strong>{{ meta.auditor_name or meta.auditor_username or '-' }}</strong></div>
+    <div class="field"><span>{{ t('enumerator') }}</span><strong>{{ meta.enumerator_name or meta.enumerator_username or '-' }}</strong></div>
+    <div class="field"><span>{{ t('supervisor_username') }}</span><strong>{{ meta.supervisor_username or '-' }}</strong></div>
+  </div>
+</div>
+{% endif %}
+
+{% if result %}
+<div class="card">
+  <h3>{{ t('results') if result.mode == 'compare' else t('result') }}</h3>
+  {% if result.mode == "compare" %}
+  <div class="notice {{ 'ok' if result.change >= 0 else 'bad' }}">
+    {{ t('added_value') }} {{ result.first.period|period_label(lang) }} &rarr; {{ result.last.period|period_label(lang) }}:
+    <strong>{{ result.change|fmt }}</strong> ({{ result.percent|pct }})
+  </div>
+  {% endif %}
+
+  {% for c in result.calcs %}
+  <div class="formula-box">
+    <strong>{{ c.period|period_label(lang) }} &mdash; {{ c.business_class }}</strong>
+    {% if c.business_class == "Trade" %}
+    <div class="formula-line">{{ t('gross_output') }} = Revenue + Inv.End &minus; Inv.Begin &minus; Raw material
+      = {{ c.total_revenue|fmt }} + {{ c.end_inventory|fmt }} &minus; {{ c.begin_inventory|fmt }} &minus; {{ c.raw_material|fmt }} = <strong>{{ c.gross_output|fmt }}</strong></div>
+    <div class="formula-line">{{ t('intermediate_consumption') }} = Operations cost + Expenses
+      = {{ c.operations_cost|fmt }} + {{ c.total_expenses|fmt }} = <strong>{{ c.intermediate_consumption|fmt }}</strong></div>
+    {% elif c.business_class in ("Construction", "Transport") %}
+    <div class="formula-line">{{ t('gross_output') }} = Revenue = <strong>{{ c.gross_output|fmt }}</strong></div>
+    <div class="formula-line">{{ t('intermediate_consumption') }} = Operations cost + Expenses
+      = {{ c.operations_cost|fmt }} + {{ c.total_expenses|fmt }} = <strong>{{ c.intermediate_consumption|fmt }}</strong></div>
+    {% else %}
+    <div class="formula-line">{{ t('gross_output') }} = Revenue + Inv.End &minus; Inv.Begin
+      = {{ c.total_revenue|fmt }} + {{ c.end_inventory|fmt }} &minus; {{ c.begin_inventory|fmt }} = <strong>{{ c.gross_output|fmt }}</strong></div>
+    <div class="formula-line">{{ t('intermediate_consumption') }} = Operations cost + Expenses + Raw material
+      = {{ c.operations_cost|fmt }} + {{ c.total_expenses|fmt }} + {{ c.raw_material|fmt }} = <strong>{{ c.intermediate_consumption|fmt }}</strong></div>
+    {% endif %}
+    <div class="formula-line">{{ t('added_value') }} = {{ t('gross_output') }} &minus; {{ t('intermediate_consumption') }}
+      = {{ c.gross_output|fmt }} &minus; {{ c.intermediate_consumption|fmt }} = <strong>{{ c.added_value|fmt }}</strong></div>
+    <div class="formula-line">{{ t('profit') }} = Revenue &minus; Expenses = {{ c.total_revenue|fmt }} &minus; {{ c.total_expenses|fmt }} = <strong>{{ c.profit|fmt }}</strong></div>
+    <div class="formula-line">{{ t('average_salary') }} = Employee compensation &divide; Employees &divide; 3
+      = {{ c.employee_salary|fmt }} &divide; {{ c.employees|fmt }} &divide; 3 = <strong>{{ c.average_salary|fmt }}</strong></div>
+  </div>
+
+  <div class="fields-grid">
+    <div class="field"><span>{{ t('business_type') }}</span><strong>{{ c.business_type }}</strong></div>
+    <div class="field"><span>{{ t('revenue') }}</span><strong class="{{ 'positive' if c.total_revenue > 0 else '' }}">{{ c.total_revenue|fmt }}</strong></div>
+    <div class="field"><span>{{ t('expenditure') }}</span><strong>{{ c.total_expenses|fmt }}</strong></div>
+    <div class="field"><span>{{ t('gross_output') }}</span><strong>{{ c.gross_output|fmt }}</strong></div>
+    <div class="field"><span>{{ t('intermediate_consumption') }}</span><strong>{{ c.intermediate_consumption|fmt }}</strong></div>
+    <div class="field"><span>{{ t('added_value') }}</span><strong class="{{ 'positive' if c.added_value > 0 else 'negative' if c.added_value < 0 else '' }}">{{ c.added_value|fmt }}</strong></div>
+    <div class="field"><span>{{ t('profit') }}</span><strong class="{{ 'positive' if c.profit > 0 else 'negative' if c.profit < 0 else '' }}">{{ c.profit|fmt }}</strong></div>
+    <div class="field"><span>{{ t('employees') }}</span><strong>{{ c.employees|fmt }}</strong></div>
+    <div class="field"><span>{{ t('average_salary') }}</span><strong>{{ c.average_salary|fmt }}</strong></div>
+    <div class="field"><span>{{ t('profit_pct') }}</span><strong>{{ c.profit_pct|pct }}</strong></div>
+    <div class="field"><span>{{ t('av_pct') }}</span><strong>{{ c.av_pct|pct }}</strong></div>
+    <div class="field"><span>{{ t('ic_pct') }}</span><strong>{{ c.ic_pct|pct }}</strong></div>
+    <div class="field"><span>{{ t('status') }}</span><strong>{{ c.validation_status }}</strong></div>
+    {% if c.comment_revenue %}<div class="field"><span>Revenue comment</span><strong>{{ c.comment_revenue }}</strong></div>{% endif %}
+    {% if c.comment_expense %}<div class="field"><span>Expense comment</span><strong>{{ c.comment_expense }}</strong></div>{% endif %}
+    {% if c.comment_inventory %}<div class="field"><span>Inventory comment</span><strong>{{ c.comment_inventory }}</strong></div>{% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

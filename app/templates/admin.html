@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block title %}{{ t('admin_panel') }} - {{ t('app_title') }}{% endblock %}
+{% block content %}
+<h2>{{ t('admin_panel') }}</h2>
+{% if message %}<div class="notice ok">{{ message }}</div>{% endif %}
+{% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
+
+<div class="grid grid-2">
+  <div class="card upload-card">
+    <h3>{{ t('account_db') }}</h3>
+    <p class="muted">{{ t('account_db_text') }}</p>
+    <form method="post" action="/admin/upload/accounts/preview" enctype="multipart/form-data">
+      <input type="file" name="file" accept=".xlsx,.xls" required />
+      <button type="submit" class="btn" style="margin-top:10px;">{{ t('next_choose_sheet') }}</button>
+    </form>
+  </div>
+
+  {% for tp in ["QES", "FISQ"] %}
+  <div class="card upload-card">
+    <h3>{{ tp }} <span class="muted small">({{ counts[tp] }} {{ t('records_loaded') }})</span></h3>
+    <p class="muted">{{ survey_labels[tp] }}</p>
+    <form method="post" action="/admin/upload/{{ tp|lower }}/preview" enctype="multipart/form-data">
+      <input type="file" name="file" accept=".xlsx,.xls" required />
+      <button type="submit" class="btn" style="margin-top:10px;">{{ t('next_choose_sheet') }}</button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+<p class="muted small">{{ t('survey_data_text') }}</p>
+
+<div class="card" style="margin-top:20px;">
+  <h3>{{ t('users') }} ({{ users|length }})</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>{{ t('username') }}</th><th>Authorization</th><th>{{ t('name') }}</th><th>{{ t('job') }}</th><th>{{ t('location') }}</th></tr></thead>
+      <tbody>
+        {% for u in users %}
+        <tr><td>{{ u.username }}</td><td><span class="pill pill-{{ u.authorization|lower }}">{{ u.authorization }}</span></td><td>{{ u.name }}</td><td>{{ u.job }}</td><td>{{ u.location }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card" style="margin-top:20px;">
+  <h3>{{ t('action_logs') }}</h3>
+  <div class="table-wrap" style="max-height:420px;">
+    <table>
+      <thead><tr><th>{{ t('time') }}</th><th>{{ t('username') }}</th><th>{{ t('role') }}</th><th>{{ t('action') }}</th><th>{{ t('details') }}</th></tr></thead>
+      <tbody>
+        {% for l in logs %}
+        <tr><td>{{ l.time }}</td><td>{{ l.username }}</td><td>{{ l.role }}</td><td>{{ l.action }}</td><td>{{ l.details }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
