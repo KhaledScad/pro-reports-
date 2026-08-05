@@ -13,9 +13,9 @@ from . import auth
 from . import excel_utils
 from . import tempstore
 from . import i18n
-from .calc_common import fmt, pct, period_label, get_periods, record_meta
+from .calc_common import fmt, pct, period_label, get_periods, record_meta, text_val
 from .calculations_qes import calc_qes
-from .calculations_fisq import calc_fisq
+from .calculations_fisq import calc_fisq, calc_fisq_period_movement
 
 BASE_DIR = Path(__file__).resolve().parent
 db.init_db()
@@ -23,6 +23,11 @@ db.init_db()
 app = FastAPI(title="Proactive Reporting")
 app.add_middleware(SessionMiddleware, secret_key="proactive-reporting-local-secret-key-change-me")
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+
+
+@app.on_event("shutdown")
+def _flush_local_db_to_durable_storage():
+    db.sync_now()
 
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.filters["fmt"] = fmt
@@ -163,6 +168,14 @@ def dashboard(request: Request):
     return render(request, "dashboard.html", access=access)
 
 
+@app.get("/guide", response_class=HTMLResponse)
+def guide(request: Request):
+    user = require_login(request)
+    if not user:
+        return RedirectResponse("/login")
+    return render(request, "guide.html")
+
+
 # ----------------------------------------------------------------- admin ---
 
 @app.get("/admin", response_class=HTMLResponse)
@@ -278,10 +291,16 @@ def survey_search(request: Request, survey_type: str, frame_id: str = "",
                 raw_fields = {k: v for k, v in row.items() if not str(k).startswith("__")}
             db.add_log(user["username"], user["authorization"], "SURVEY_FRAME_VIEW", f"{survey_type} / {frame_id}")
 
+    # Beginning-of-quarter vs end-of-quarter asset equation, per calculated
+    # quarter (FISQ only) — بداية المدة و نهاية المدة.
+    movement_map = {}
+    if survey_type == "FISQ" and result and result.get("calcs"):
+        movement_map = {c["period"]: calc_fisq_period_movement(row, c["period"]) for c in result["calcs"]}
+
     template = f"survey_{survey_type.lower()}.html" if survey_type in CALCULATED_TYPES else "survey_generic.html"
     return render(request, template, survey_type=survey_type, frame_id=frame_id, mode=mode,
                   quarter=quarter, quarters=quarters, frame_options=frame_options, periods=periods,
-                  result=result, error=error, row=row, meta=meta, raw_fields=raw_fields)
+                  result=result, error=error, row=row, meta=meta, raw_fields=raw_fields, movement_map=movement_map)
 
 
 # ------------------------------------------------------------- comparison ---
@@ -336,6 +355,22 @@ def compare_view(request: Request, survey_type: str, frame_id: str = "", periods
             change_pct = (change / abs(prev) * 100) if (i > 0 and prev) else 0
             employee_rows.append({"calc": c, "is_base": i == 0, "change": change, "change_pct": change_pct})
 
+    # ISIC4 classification stability across the compared quarters (QES + FISQ).
+    isic_rows = []
+    if calcs:
+        prev_isic = None
+        for i, c in enumerate(calcs):
+            isic = text_val(row, c["period"], ["ISIC4"])
+            changed = i > 0 and isic != prev_isic
+            isic_rows.append({"period": c["period"], "isic4": isic, "is_base": i == 0, "changed": changed})
+            prev_isic = isic
+
+    # Beginning-of-quarter vs end-of-quarter asset equation, within each
+    # quarter (FISQ only) — بداية المدة و نهاية المدة.
+    movement_rows = []
+    if survey_type == "FISQ" and calcs:
+        movement_rows = [calc_fisq_period_movement(row, c["period"]) for c in calcs]
+
     chart = None
     if calcs:
         var_defs = CHART_VARIABLES[survey_type]
@@ -349,8 +384,8 @@ def compare_view(request: Request, survey_type: str, frame_id: str = "", periods
     template = f"compare_{survey_type.lower()}.html"
     return render(request, template, survey_type=survey_type, frame_id=frame_id, frame_options=frame_options,
                   all_periods=all_periods, selected_periods=[c["period"] for c in calcs], calcs=calcs,
-                  inventory_rows=inventory_rows, employee_rows=employee_rows, error=error, row=row, meta=meta,
-                  chart=chart)
+                  inventory_rows=inventory_rows, employee_rows=employee_rows, isic_rows=isic_rows,
+                  movement_rows=movement_rows, error=error, row=row, meta=meta, chart=chart)
 
 
 # ------------------------------------------------------------------ main ---

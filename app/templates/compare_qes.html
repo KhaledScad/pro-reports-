@@ -71,6 +71,26 @@
 </div>
 
 <div class="card">
+  <h3>{{ t('isic_status') }}</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>{{ t('period') }}</th><th>{{ t('isic4') }}</th><th>{{ t('status') }}</th></tr></thead>
+      <tbody>
+        {% for ir in isic_rows %}
+        <tr>
+          <td>{{ ir.period|period_label(lang) }}</td>
+          <td>{{ ir.isic4 or '-' }}</td>
+          <td class="{{ '' if ir.is_base else ('negative' if ir.changed else 'positive') }}">
+            {{ t('base_period') if ir.is_base else (t('changed') if ir.changed else t('no_change')) }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
   <h3>{{ t('inventory_continuity') }}</h3>
   <div class="table-wrap">
     <table>
@@ -124,14 +144,7 @@
     <p class="muted small chart-toolbar-hint">{{ t('chart_multi_hint') }}</p>
   </div>
   <div class="chart-grid">
-    <div class="chart-box">
-      <h4>{{ t('bar_chart') }}</h4>
-      <div class="chart-legend" id="qesBarLegend"></div>
-      <div class="chart-canvas-wrap">
-        <svg id="qesBarChart" class="chart-svg"></svg>
-        <div class="chart-tooltip" id="qesBarTooltip" hidden></div>
-      </div>
-    </div>
+    <div class="chart-bar-column" id="qesBarColumn"></div>
     <div class="chart-box">
       <h4>{{ t('pulse_chart') }}</h4>
       <div class="chart-legend" id="qesPulseLegend"></div>
@@ -146,9 +159,11 @@
 <script>
   initTrendCharts({
     checklistId: "qesVarChecks",
-    barSvgId: "qesBarChart",
-    barTooltipId: "qesBarTooltip",
-    barLegendId: "qesBarLegend",
+    barColumnId: "qesBarColumn",
+    barChartLabel: {{ t('bar_chart')|tojson }},
+    groupLargeLabel: {{ t('chart_group_large')|tojson }},
+    groupSmallLabel: {{ t('chart_group_small')|tojson }},
+    groupPctLabel: {{ t('chart_group_pct')|tojson }},
     pulseSvgId: "qesPulseChart",
     pulseTooltipId: "qesPulseTooltip",
     pulseLegendId: "qesPulseLegend",

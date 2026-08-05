@@ -93,6 +93,54 @@
     <div class="field"><span>Equity details diff</span><strong>{{ c.equity_details_difference|fmt }}</strong></div>
     <div class="field"><span>{{ t('status') }}</span><strong class="{{ 'positive' if c.status == 'Balanced' else 'negative' }}">{{ c.status }}</strong></div>
   </div>
+
+  {% set mv = movement_map.get(c.period) %}
+  {% if mv %}
+  <h4 style="margin:16px 0 8px;">{{ t('movement_heading') }}</h4>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th></th><th>{{ t('current_assets') }}</th><th>{{ t('non_current_assets') }}</th><th>{{ t('total_assets') }}</th><th>{{ t('current_liabilities') }}</th><th>{{ t('non_current_liabilities') }}</th><th>{{ t('total_liabilities') }}</th><th>{{ t('calculated_equity') }}</th><th>{{ t('equity_in_form') }}</th><th>{{ t('difference') }}</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>{{ t('beginning_of_period') }}</td>
+          <td>{{ mv.begin.current_assets|fmt }}</td>
+          <td>{{ mv.begin.non_current_assets|fmt }}</td>
+          <td>{{ mv.begin.total_assets|fmt }}</td>
+          <td>{{ mv.begin.current_liabilities|fmt }}</td>
+          <td>{{ mv.begin.non_current_liabilities|fmt }}</td>
+          <td>{{ mv.begin.total_liabilities|fmt }}</td>
+          <td>{{ mv.begin.calculated_equity|fmt }}</td>
+          <td>{{ mv.begin.equity_in_form|fmt }}</td>
+          <td class="{{ 'positive' if (mv.begin.equation_difference|abs) < 0.01 else 'negative' }}">{{ mv.begin.equation_difference|fmt }}</td>
+        </tr>
+        <tr>
+          <td>{{ t('end_of_period') }}</td>
+          <td class="{{ trend_cls(mv.begin.current_assets, mv.end.current_assets) }}">{{ mv.end.current_assets|fmt }}</td>
+          <td class="{{ trend_cls(mv.begin.non_current_assets, mv.end.non_current_assets) }}">{{ mv.end.non_current_assets|fmt }}</td>
+          <td class="{{ trend_cls(mv.begin.total_assets, mv.end.total_assets) }}">{{ mv.end.total_assets|fmt }}</td>
+          <td class="{{ trend_cls(mv.begin.current_liabilities, mv.end.current_liabilities) }}">{{ mv.end.current_liabilities|fmt }}</td>
+          <td class="{{ trend_cls(mv.begin.non_current_liabilities, mv.end.non_current_liabilities) }}">{{ mv.end.non_current_liabilities|fmt }}</td>
+          <td class="{{ trend_cls(mv.begin.total_liabilities, mv.end.total_liabilities) }}">{{ mv.end.total_liabilities|fmt }}</td>
+          <td class="{{ trend_cls(mv.begin.calculated_equity, mv.end.calculated_equity) }}">{{ mv.end.calculated_equity|fmt }}</td>
+          <td>{{ mv.end.equity_in_form|fmt }}</td>
+          <td class="{{ 'positive' if (mv.end.equation_difference|abs) < 0.01 else 'negative' }}">{{ mv.end.equation_difference|fmt }}</td>
+        </tr>
+        <tr>
+          <td><strong>{{ t('difference') }}</strong></td>
+          <td><strong>{{ (mv.end.current_assets - mv.begin.current_assets)|fmt }}</strong></td>
+          <td><strong>{{ (mv.end.non_current_assets - mv.begin.non_current_assets)|fmt }}</strong></td>
+          <td><strong>{{ mv.assets_change|fmt }}</strong></td>
+          <td><strong>{{ (mv.end.current_liabilities - mv.begin.current_liabilities)|fmt }}</strong></td>
+          <td><strong>{{ (mv.end.non_current_liabilities - mv.begin.non_current_liabilities)|fmt }}</strong></td>
+          <td><strong>{{ mv.liabilities_change|fmt }}</strong></td>
+          <td><strong>{{ mv.equity_change|fmt }}</strong></td>
+          <td>&mdash;</td>
+          <td>&mdash;</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  {% endif %}
   {% endfor %}
 </div>
 {% endif %}

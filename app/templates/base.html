@@ -20,6 +20,7 @@
       <a href="/dashboard" class="{{ 'active' if request.url.path == '/dashboard' }}">{{ t('nav_home') }}</a>
       <a href="/survey/qes" class="{{ 'active' if '/qes' in request.url.path }}">QES</a>
       <a href="/survey/fisq" class="{{ 'active' if '/fisq' in request.url.path }}">FISQ</a>
+      <a href="/guide" class="{{ 'active' if request.url.path == '/guide' }}">{{ t('nav_guide') }}</a>
       {% if is_admin %}<a href="/admin" class="{{ 'active' if request.url.path == '/admin' }}">{{ t('nav_admin') }}</a>{% endif %}
     </nav>
     <div class="session-box">

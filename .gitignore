@@ -2,5 +2,7 @@
 __pycache__/
 *.pyc
 data/
+data_backup_*/
 uploads/
 server*.log
+run_*.log

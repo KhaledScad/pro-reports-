@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}{{ t('nav_home') }} - {{ t('app_title') }}{% endblock %}
+{% block content %}
+<h2>{{ t('welcome') }}, {{ user.name or user.username }}</h2>
+<p class="muted">{{ t('manager_dashboard_text') if is_manager else t('supervisor_dashboard_text') }}</p>
+
+<div class="card">
+  <form method="get" action="/dashboard" class="filter-bar">
+    <div>
+      <label for="employee">{{ t('employee') }}</label>
+      <select id="employee" name="employee">
+        <option value="" {{ 'selected' if not employee_filter }}>{{ t('all') }}</option>
+        {% for e in employees %}
+        <option value="{{ e.username }}" {{ 'selected' if employee_filter == e.username }}>{{ e.name }} ({{ t(e.role|lower) }})</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="activity">{{ t('activity_type') }}</label>
+      <select id="activity" name="activity">
+        <option value="" {{ 'selected' if not activity_filter }}>{{ t('all') }}</option>
+        {% for a in activities %}
+        <option value="{{ a }}" {{ 'selected' if activity_filter == a }}>{{ a }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div>
+      <label for="type">{{ t('survey_type') }}</label>
+      <select id="type" name="type">
+        <option value="ALL" {{ 'selected' if survey_filter == 'ALL' }}>{{ t('all') }}</option>
+        <option value="QES" {{ 'selected' if survey_filter == 'QES' }}>QES</option>
+        <option value="FISQ" {{ 'selected' if survey_filter == 'FISQ' }}>FISQ</option>
+      </select>
+    </div>
+    <div><button type="submit" class="btn">{{ t('apply_filters') }}</button></div>
+  </form>
+</div>
+
+<div class="card">
+  <h3>{{ t('employees_progress') }}</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>{{ t('employee') }}</th><th>{{ t('role') }}</th><th>{{ t('total') }}</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for e in employees %}
+        <tr>
+          <td>{{ e.name }}</td>
+          <td>{{ t(e.role|lower) }}</td>
+          <td>{{ e.total }}</td>
+          <td><a class="btn small ghost" href="/dashboard?employee={{ e.username }}">{{ t('view') }}</a></td>
+        </tr>
+        {% else %}
+        <tr><td colspan="4" class="muted">{{ t('no_records_found') }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h3>{{ t('records') }}</h3>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>{{ t('survey_type') }}</th><th>{{ t('frame_id') }}</th><th>{{ t('establishment') }}</th>
+            <th>{{ t('activity_type') }}</th><th>{{ t('enumerator') }}</th><th>{{ t('auditor') }}</th></tr>
+      </thead>
+      <tbody>
+        {% for i in items %}
+        <tr>
+          <td>{{ i.survey_type }}</td>
+          <td><a href="/survey/{{ i.survey_type|lower }}?frame_id={{ i.frame_id }}">{{ i.frame_id }}</a></td>
+          <td>{{ i.establishment_name or '-' }}</td>
+          <td>{{ i.activity_type or '-' }}</td>
+          <td>{{ i.enumerator_name or i.enumerator_username or '-' }}</td>
+          <td>{{ i.auditor_name or i.auditor_username or '-' }}</td>
+        </tr>
+        {% else %}
+        <tr><td colspan="6" class="muted">{{ t('no_records_found') }}</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

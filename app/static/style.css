@@ -171,8 +171,9 @@ code { background: #f3f4f6; padding: 2px 6px; border-radius: 6px; font-size: 12p
 .var-chip.is-disabled { opacity: .4; cursor: not-allowed; }
 .var-chip-dot { width: 10px; height: 10px; border-radius: 50%; background: #e5e7eb; flex-shrink: 0; transition: background .12s ease; }
 
-.chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.chart-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
 @media (max-width: 900px) { .chart-grid { grid-template-columns: 1fr; } }
+.chart-bar-column { display: flex; flex-direction: column; gap: 16px; }
 .chart-box { border: 1px solid var(--border); border-radius: 12px; padding: 14px; background: #fafafa; }
 .chart-box h4 { margin: 0 0 10px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
 .chart-legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 10px; }

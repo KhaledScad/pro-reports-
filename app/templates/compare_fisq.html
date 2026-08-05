@@ -72,6 +72,63 @@
 </div>
 
 <div class="card">
+  <h3>{{ t('period_movement') }}</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>{{ t('period') }}</th><th>{{ t('current_assets') }}</th><th>{{ t('non_current_assets') }}</th><th>{{ t('total_assets') }}</th><th>{{ t('current_liabilities') }}</th><th>{{ t('non_current_liabilities') }}</th><th>{{ t('total_liabilities') }}</th><th>{{ t('calculated_equity') }}</th><th>{{ t('equity_in_form') }}</th><th>{{ t('difference') }}</th></tr></thead>
+      <tbody>
+        {% for mv in movement_rows %}
+        <tr>
+          <td>{{ mv.period|period_label(lang) }} &mdash; {{ t('beginning_of_period') }}</td>
+          <td>{{ mv.begin.current_assets|fmt }}</td>
+          <td>{{ mv.begin.non_current_assets|fmt }}</td>
+          <td>{{ mv.begin.total_assets|fmt }}</td>
+          <td>{{ mv.begin.current_liabilities|fmt }}</td>
+          <td>{{ mv.begin.non_current_liabilities|fmt }}</td>
+          <td>{{ mv.begin.total_liabilities|fmt }}</td>
+          <td>{{ mv.begin.calculated_equity|fmt }}</td>
+          <td>{{ mv.begin.equity_in_form|fmt }}</td>
+          <td class="{{ 'positive' if (mv.begin.equation_difference|abs) < 0.01 else 'negative' }}">{{ mv.begin.equation_difference|fmt }}</td>
+        </tr>
+        <tr>
+          <td>{{ mv.period|period_label(lang) }} &mdash; {{ t('end_of_period') }}</td>
+          <td class="{{ trend_cls(mv.begin.current_assets, mv.end.current_assets) }}">{{ mv.end.current_assets|fmt }}</td>
+          <td class="{{ trend_cls(mv.begin.non_current_assets, mv.end.non_current_assets) }}">{{ mv.end.non_current_assets|fmt }}</td>
+          <td class="{{ trend_cls(mv.begin.total_assets, mv.end.total_assets) }}">{{ mv.end.total_assets|fmt }}</td>
+          <td class="{{ trend_cls(mv.begin.current_liabilities, mv.end.current_liabilities) }}">{{ mv.end.current_liabilities|fmt }}</td>
+          <td class="{{ trend_cls(mv.begin.non_current_liabilities, mv.end.non_current_liabilities) }}">{{ mv.end.non_current_liabilities|fmt }}</td>
+          <td class="{{ trend_cls(mv.begin.total_liabilities, mv.end.total_liabilities) }}">{{ mv.end.total_liabilities|fmt }}</td>
+          <td class="{{ trend_cls(mv.begin.calculated_equity, mv.end.calculated_equity) }}">{{ mv.end.calculated_equity|fmt }}</td>
+          <td>{{ mv.end.equity_in_form|fmt }}</td>
+          <td class="{{ 'positive' if (mv.end.equation_difference|abs) < 0.01 else 'negative' }}">{{ mv.end.equation_difference|fmt }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
+  <h3>{{ t('isic_status_fisq') }}</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>{{ t('period') }}</th><th>{{ t('isic4') }}</th><th>{{ t('status') }}</th></tr></thead>
+      <tbody>
+        {% for ir in isic_rows %}
+        <tr>
+          <td>{{ ir.period|period_label(lang) }}</td>
+          <td>{{ ir.isic4 or '-' }}</td>
+          <td class="{{ '' if ir.is_base else ('negative' if ir.changed else 'positive') }}">
+            {{ t('base_period') if ir.is_base else (t('changed') if ir.changed else t('no_change')) }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="card">
   <h3>{{ t('equity_details') }}</h3>
   <div class="table-wrap">
     <table>
@@ -129,14 +186,7 @@
     <p class="muted small chart-toolbar-hint">{{ t('chart_multi_hint') }}</p>
   </div>
   <div class="chart-grid">
-    <div class="chart-box">
-      <h4>{{ t('bar_chart') }}</h4>
-      <div class="chart-legend" id="fisqBarLegend"></div>
-      <div class="chart-canvas-wrap">
-        <svg id="fisqBarChart" class="chart-svg"></svg>
-        <div class="chart-tooltip" id="fisqBarTooltip" hidden></div>
-      </div>
-    </div>
+    <div class="chart-bar-column" id="fisqBarColumn"></div>
     <div class="chart-box">
       <h4>{{ t('pulse_chart') }}</h4>
       <div class="chart-legend" id="fisqPulseLegend"></div>
@@ -151,9 +201,11 @@
 <script>
   initTrendCharts({
     checklistId: "fisqVarChecks",
-    barSvgId: "fisqBarChart",
-    barTooltipId: "fisqBarTooltip",
-    barLegendId: "fisqBarLegend",
+    barColumnId: "fisqBarColumn",
+    barChartLabel: {{ t('bar_chart')|tojson }},
+    groupLargeLabel: {{ t('chart_group_large')|tojson }},
+    groupSmallLabel: {{ t('chart_group_small')|tojson }},
+    groupPctLabel: {{ t('chart_group_pct')|tojson }},
     pulseSvgId: "fisqPulseChart",
     pulseTooltipId: "fisqPulseTooltip",
     pulseLegendId: "fisqPulseLegend",

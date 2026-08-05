@@ -1,0 +1,85 @@
+﻿{% extends "base.html" %}
+{% block title %}{{ t('guide_title') }} - {{ t('app_title') }}{% endblock %}
+{% block content %}
+<h2>{{ t('guide_title') }}</h2>
+<p class="muted">{{ t('guide_intro') }}</p>
+
+<div class="card">
+  <h3>{{ t('guide_qes_title') }}</h3>
+  <p class="muted">{{ t('guide_qes_intro') }}</p>
+
+  <h4 style="margin:18px 0 8px;">{{ t('guide_qes_activity_title') }}</h4>
+  <p>{{ t('guide_qes_activity_desc') }}</p>
+  <div class="formula-box">
+    <div class="formula-line">{{ t('guide_qes_trade') }}</div>
+    <div class="formula-line">{{ t('guide_qes_construction') }}</div>
+    <div class="formula-line">{{ t('guide_qes_industry') }}</div>
+  </div>
+
+  <h4 style="margin:18px 0 8px;">{{ t('guide_qes_shared_title') }}</h4>
+  <div class="formula-box">
+    <div class="formula-line">{{ t('guide_qes_added_value') }}</div>
+    <div class="formula-line">{{ t('guide_qes_profit') }}</div>
+    <div class="formula-line">{{ t('guide_qes_avg_salary') }}</div>
+    <div class="formula-line">{{ t('guide_qes_profit_pct') }}</div>
+    <div class="formula-line">{{ t('guide_qes_av_pct') }}</div>
+    <div class="formula-line">{{ t('guide_qes_ic_pct') }}</div>
+  </div>
+
+  <h4 style="margin:18px 0 8px;">{{ t('guide_qes_glossary_title') }}</h4>
+  <div class="fields-grid">
+    <div class="field"><span>{{ t('revenue') }}</span><strong>{{ t('guide_def_revenue') }}</strong></div>
+    <div class="field"><span>{{ t('expenditure') }}</span><strong>{{ t('guide_def_expenditure') }}</strong></div>
+    <div class="field"><span>{{ t('gross_output') }}</span><strong>{{ t('guide_def_gross_output') }}</strong></div>
+    <div class="field"><span>{{ t('intermediate_consumption') }}</span><strong>{{ t('guide_def_intermediate_consumption') }}</strong></div>
+    <div class="field"><span>{{ t('added_value') }}</span><strong>{{ t('guide_def_added_value') }}</strong></div>
+    <div class="field"><span>{{ t('profit') }}</span><strong>{{ t('guide_def_profit') }}</strong></div>
+    <div class="field"><span>{{ t('employees') }}</span><strong>{{ t('guide_def_employees') }}</strong></div>
+    <div class="field"><span>{{ t('average_salary') }}</span><strong>{{ t('guide_def_average_salary') }}</strong></div>
+    <div class="field"><span>{{ t('compensation') }}</span><strong>{{ t('guide_def_compensation') }}</strong></div>
+    <div class="field"><span>{{ t('inventory_start') }}</span><strong>{{ t('guide_def_inventory_start') }}</strong></div>
+    <div class="field"><span>{{ t('inventory_end') }}</span><strong>{{ t('guide_def_inventory_end') }}</strong></div>
+    <div class="field"><span>{{ t('profit_pct') }}</span><strong>{{ t('guide_def_profit_pct') }}</strong></div>
+    <div class="field"><span>{{ t('av_pct') }}</span><strong>{{ t('guide_def_av_pct') }}</strong></div>
+    <div class="field"><span>{{ t('ic_pct') }}</span><strong>{{ t('guide_def_ic_pct') }}</strong></div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>{{ t('guide_fisq_title') }}</h3>
+  <p class="muted">{{ t('guide_fisq_intro') }}</p>
+
+  <div class="formula-box">
+    <div class="formula-line">{{ t('guide_fisq_total_assets') }}</div>
+    <div class="formula-line">{{ t('guide_fisq_total_liab') }}</div>
+    <div class="formula-line">{{ t('guide_fisq_calc_equity') }}</div>
+    <div class="formula-line">{{ t('guide_fisq_difference') }}</div>
+  </div>
+
+  <h4 style="margin:18px 0 8px;">{{ t('guide_fisq_movement_title') }}</h4>
+  <p>{{ t('guide_fisq_movement_desc') }}</p>
+
+  <h4 style="margin:18px 0 8px;">{{ t('guide_fisq_equity_details_title') }}</h4>
+  <p>{{ t('guide_fisq_equity_details_desc') }}</p>
+
+  <h4 style="margin:18px 0 8px;">{{ t('guide_fisq_glossary_title') }}</h4>
+  <div class="fields-grid">
+    <div class="field"><span>{{ t('current_assets') }}</span><strong>{{ t('guide_def_current_assets') }}</strong></div>
+    <div class="field"><span>{{ t('non_current_assets') }}</span><strong>{{ t('guide_def_non_current_assets') }}</strong></div>
+    <div class="field"><span>{{ t('current_liabilities') }}</span><strong>{{ t('guide_def_current_liabilities') }}</strong></div>
+    <div class="field"><span>{{ t('non_current_liabilities') }}</span><strong>{{ t('guide_def_non_current_liabilities') }}</strong></div>
+    <div class="field"><span>{{ t('calculated_equity') }}</span><strong>{{ t('guide_def_calculated_equity') }}</strong></div>
+    <div class="field"><span>{{ t('equity_in_form') }}</span><strong>{{ t('guide_def_equity_in_form') }}</strong></div>
+  </div>
+</div>
+
+<div class="card">
+  <h3>{{ t('guide_isic_title') }}</h3>
+  <p>{{ t('guide_isic_desc') }}</p>
+</div>
+
+<div class="card">
+  <h3>{{ t('guide_charts_title') }}</h3>
+  <p>{{ t('guide_charts_desc') }}</p>
+</div>
+{% endblock %}

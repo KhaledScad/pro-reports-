@@ -133,6 +133,59 @@
     });
   }
 
+  var PCT_RE = /_pct$/;
+  var MAGNITUDE_RATIO = 0.12;
+
+  // Split series into chart groups so wildly different scales never share one
+  // axis: percentages always get their own chart, and amount-type variables
+  // split into "large" / "small" scale groups only when their peaks actually differ.
+  function groupBarSeries(seriesKeys, seriesData) {
+    var pctKeys = seriesKeys.filter(function (k) { return PCT_RE.test(k); });
+    var amountKeys = seriesKeys.filter(function (k) { return !PCT_RE.test(k); });
+
+    var large = [], small = [];
+    if (amountKeys.length) {
+      var peaks = {};
+      amountKeys.forEach(function (k) {
+        var m = 0;
+        seriesData[k].forEach(function (v) { m = Math.max(m, Math.abs(v)); });
+        peaks[k] = m;
+      });
+      var overallMax = Math.max.apply(null, amountKeys.map(function (k) { return peaks[k]; }));
+      amountKeys.forEach(function (k) {
+        if (overallMax === 0 || peaks[k] >= overallMax * MAGNITUDE_RATIO) large.push(k); else small.push(k);
+      });
+    }
+
+    var groups = [];
+    if (large.length) groups.push({ kind: "large", keys: large });
+    if (small.length) groups.push({ kind: "small", keys: small });
+    if (pctKeys.length) groups.push({ kind: "pct", keys: pctKeys });
+    return groups;
+  }
+
+  function buildChartBox(container, title) {
+    var box = document.createElement("div");
+    box.className = "chart-box";
+    var h4 = document.createElement("h4");
+    h4.textContent = title;
+    var legend = document.createElement("div");
+    legend.className = "chart-legend";
+    var wrap = document.createElement("div");
+    wrap.className = "chart-canvas-wrap";
+    var svg = svgEl("svg", { class: "chart-svg" });
+    var tooltip = document.createElement("div");
+    tooltip.className = "chart-tooltip";
+    tooltip.hidden = true;
+    wrap.appendChild(svg);
+    wrap.appendChild(tooltip);
+    box.appendChild(h4);
+    box.appendChild(legend);
+    box.appendChild(wrap);
+    container.appendChild(box);
+    return { svg: svg, legend: legend, tooltip: tooltip, wrap: wrap };
+  }
+
   function drawYAxis(svg, ticks, min, max, padLeft, padRight, padTop, padBottom, width, height) {
     var usable = height - padTop - padBottom;
     ticks.forEach(function (tv) {
@@ -278,15 +331,16 @@
 
   window.initTrendCharts = function (config) {
     var checklist = document.getElementById(config.checklistId);
-    var barSvg = document.getElementById(config.barSvgId);
+    var barColumn = document.getElementById(config.barColumnId);
     var pulseSvg = document.getElementById(config.pulseSvgId);
-    if (!checklist || !barSvg || !pulseSvg) return;
+    if (!checklist || !barColumn || !pulseSvg) return;
 
-    var barWrap = barSvg.parentElement, pulseWrap = pulseSvg.parentElement;
-    var barTooltip = document.getElementById(config.barTooltipId);
+    var pulseWrap = pulseSvg.parentElement;
     var pulseTooltip = document.getElementById(config.pulseTooltipId);
-    var barLegend = document.getElementById(config.barLegendId);
     var pulseLegend = document.getElementById(config.pulseLegendId);
+    var groupTitles = {
+      large: config.groupLargeLabel, small: config.groupSmallLabel, pct: config.groupPctLabel,
+    };
     var nameByKey = {};
     config.variables.forEach(function (v) { nameByKey[v.key] = v.label; });
     var nameOf = function (key) { return nameByKey[key] || key; };
@@ -323,16 +377,21 @@
       var colors = colorMap(seriesKeys);
       updateChipVisuals(seriesKeys, colors);
       var colorOf = function (k) { return colors[k]; };
-      renderLegend(barLegend, seriesKeys, colorOf, nameOf);
       renderLegend(pulseLegend, seriesKeys, colorOf, nameOf);
 
-      var barWidth = barWrap.clientWidth || 480;
-      var pulseWidth = pulseWrap.clientWidth || 480;
-
-      renderBarChart({
-        svg: barSvg, wrap: barWrap, tooltip: barTooltip, width: barWidth, height: 280,
-        labels: config.labels, seriesKeys: seriesKeys, seriesData: config.series, colorOf: colorOf, nameOf: nameOf,
+      clear(barColumn);
+      var groups = groupBarSeries(seriesKeys, config.series);
+      groups.forEach(function (group) {
+        var title = groups.length > 1 ? config.barChartLabel + " — " + groupTitles[group.kind] : config.barChartLabel;
+        var refs = buildChartBox(barColumn, title);
+        renderLegend(refs.legend, group.keys, colorOf, nameOf);
+        renderBarChart({
+          svg: refs.svg, wrap: refs.wrap, tooltip: refs.tooltip, width: refs.wrap.clientWidth || 480, height: 280,
+          labels: config.labels, seriesKeys: group.keys, seriesData: config.series, colorOf: colorOf, nameOf: nameOf,
+        });
       });
+
+      var pulseWidth = pulseWrap.clientWidth || 480;
       renderPulseChart({
         svg: pulseSvg, wrap: pulseWrap, tooltip: pulseTooltip, width: pulseWidth, height: 280,
         labels: config.labels, seriesKeys: seriesKeys, seriesData: config.series, colorOf: colorOf, nameOf: nameOf,
