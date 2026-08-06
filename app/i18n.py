@@ -242,6 +242,7 @@ TRANSLATIONS: dict[str, tuple[str, str]] = {
     # ---- guide tabs + how-to-use walkthrough (mock screenshots, made-up data) ---
     "guide_tab_qes": ("QES", "QES"),
     "guide_tab_fisq": ("FISQ", "FISQ"),
+    "guide_now_viewing": ("Now viewing", "تعرض الآن"),
     "guide_mock_disclaimer": ("Every screen below uses a made-up Frame ID and made-up numbers to illustrate the steps — it is not real establishment data.",
                               "تستخدم كل الشاشات أدناه رقم إطار وأرقاماً وهمية لتوضيح الخطوات فقط — وليست بيانات منشأة حقيقية."),
 

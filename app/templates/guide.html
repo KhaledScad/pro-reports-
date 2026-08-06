@@ -5,9 +5,10 @@
 <p class="muted">{{ t('guide_intro') }}</p>
 
 <div class="guide-tabs" role="tablist">
-  <button type="button" class="guide-tab-btn active" data-guide-tab="qes">{{ t('guide_tab_qes') }}</button>
-  <button type="button" class="guide-tab-btn" data-guide-tab="fisq">{{ t('guide_tab_fisq') }}</button>
+  <button type="button" class="guide-tab-btn active" data-guide-tab="qes" aria-selected="true">{{ t('guide_tab_qes') }}</button>
+  <button type="button" class="guide-tab-btn" data-guide-tab="fisq" aria-selected="false">{{ t('guide_tab_fisq') }}</button>
 </div>
+<p class="guide-current-label">{{ t('guide_now_viewing') }}: <strong id="guide-current-name">{{ t('guide_tab_qes') }}</strong></p>
 
 <div class="guide-panel" id="guide-panel-qes">
 
@@ -255,11 +256,17 @@
 (function () {
   var buttons = document.querySelectorAll(".guide-tab-btn");
   var panels = { qes: document.getElementById("guide-panel-qes"), fisq: document.getElementById("guide-panel-fisq") };
+  var currentName = document.getElementById("guide-current-name");
   buttons.forEach(function (btn) {
     btn.addEventListener("click", function () {
       var target = btn.getAttribute("data-guide-tab");
-      buttons.forEach(function (b) { b.classList.toggle("active", b === btn); });
+      buttons.forEach(function (b) {
+        var isActive = b === btn;
+        b.classList.toggle("active", isActive);
+        b.setAttribute("aria-selected", isActive ? "true" : "false");
+      });
       Object.keys(panels).forEach(function (key) { panels[key].hidden = key !== target; });
+      if (currentName) { currentName.textContent = btn.textContent; }
     });
   });
 })();
