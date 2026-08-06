@@ -33,6 +33,9 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 templates.env.filters["fmt"] = fmt
 templates.env.filters["pct"] = pct
 templates.env.filters["period_label"] = period_label
+# Cache-bust /static assets on every server restart (i.e. every deploy) so
+# browsers can't keep serving a stale style.css/charts.js after an update.
+templates.env.globals["static_version"] = str(int((BASE_DIR / "static" / "style.css").stat().st_mtime))
 
 
 def trend_cls(prev_val, curr_val) -> str:
