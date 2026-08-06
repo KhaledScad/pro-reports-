@@ -238,6 +238,34 @@ TRANSLATIONS: dict[str, tuple[str, str]] = {
     "guide_isic_title": ("ISIC classification stability", "استقرار تصنيف ISIC4"),
     "guide_isic_desc": ("Shows whether the establishment's registered business activity stayed the same across the quarters being compared. A change is flagged in red, since it may mean a different formula applied to that quarter.",
                         "يوضح ما إذا كان النشاط التجاري المسجل للمنشأة قد بقي كما هو عبر الأرباع التي تتم مقارنتها. يُشار إلى أي تغيير باللون الأحمر لأنه قد يعني تطبيق معادلة مختلفة على ذلك الربع."),
+
+    # ---- guide tabs + how-to-use walkthrough (mock screenshots, made-up data) ---
+    "guide_tab_qes": ("QES", "QES"),
+    "guide_tab_fisq": ("FISQ", "FISQ"),
+    "guide_mock_disclaimer": ("Every screen below uses a made-up Frame ID and made-up numbers to illustrate the steps — it is not real establishment data.",
+                              "تستخدم كل الشاشات أدناه رقم إطار وأرقاماً وهمية لتوضيح الخطوات فقط — وليست بيانات منشأة حقيقية."),
+
+    "guide_howto_qes_title": ("How to view QES data, calculations & comparisons", "كيفية عرض بيانات QES واحتساباتها ومقارناتها"),
+    "guide_howto_qes_step1_label": ("1. Search by Frame ID", "1. البحث برقم الإطار"),
+    "guide_howto_qes_step1_desc": ("Open the QES tab, choose single quarter or compare mode, type the establishment's Frame ID, then click Search / Calculate.",
+                                   "افتح تبويب QES، اختر وضع الربع الواحد أو المقارنة، أدخل رقم إطار المنشأة، ثم اضغط بحث / احتساب."),
+    "guide_howto_qes_step2_label": ("2. View the calculation for one quarter", "2. عرض احتساب ربع واحد"),
+    "guide_howto_qes_step2_desc": ("The tool shows the establishment's business activity, the formula used for it, and the resulting figures — Gross output, Intermediate consumption, Added value, Profit, and more.",
+                                   "تعرض الأداة نشاط المنشأة التجاري، والمعادلة المستخدمة له، والأرقام الناتجة — الإنتاج الإجمالي، والاستهلاك الوسيط، والقيمة المضافة، والربح، وغيرها."),
+    "guide_howto_qes_step3_label": ("3. Compare quarters", "3. مقارنة الأرباع"),
+    "guide_howto_qes_step3_desc": ("Switch to compare mode and tick the quarters you want. Figures line up side by side — green if a figure rose since the previous selected quarter, red if it fell — alongside the ISIC stability check and interactive trend charts.",
+                                   "بدّل إلى وضع المقارنة وحدّد الأرباع المطلوبة. تُعرض الأرقام جنباً إلى جنب — أخضر إذا ارتفع الرقم عن الربع السابق المختار، وأحمر إذا انخفض — إلى جانب فحص استقرار ISIC والرسوم البيانية التفاعلية للاتجاه."),
+
+    "guide_howto_fisq_title": ("How to view FISQ data, calculations & comparisons", "كيفية عرض بيانات FISQ واحتساباتها ومقارناتها"),
+    "guide_howto_fisq_step1_label": ("1. Search by Frame ID", "1. البحث برقم الإطار"),
+    "guide_howto_fisq_step1_desc": ("Open the FISQ tab, choose single quarter or compare mode, type the establishment's Frame ID, then click Search / Calculate.",
+                                    "افتح تبويب FISQ، اختر وضع الربع الواحد أو المقارنة، أدخل رقم إطار المنشأة، ثم اضغط بحث / احتساب."),
+    "guide_howto_fisq_step2_label": ("2. View the asset equation for one quarter", "2. عرض معادلة الأصول لربع واحد"),
+    "guide_howto_fisq_step2_desc": ("The tool shows Total assets, Total liabilities, and Calculated equity against the equity reported in the form — separately for the beginning and end of the quarter, so you can see the balance sheet move.",
+                                    "تعرض الأداة إجمالي الأصول وإجمالي المطلوبات وحقوق الملكية المحتسبة مقارنة بحقوق الملكية المُبلغ عنها في الاستمارة — بشكل منفصل لبداية ونهاية الربع، لمعرفة حركة الميزانية العمومية."),
+    "guide_howto_fisq_step3_label": ("3. Compare quarters", "3. مقارنة الأرباع"),
+    "guide_howto_fisq_step3_desc": ("Switch to compare mode to line the equation up across quarters, alongside the ISIC stability check and interactive trend charts.",
+                                    "بدّل إلى وضع المقارنة لعرض المعادلة عبر الأرباع، إلى جانب فحص استقرار ISIC والرسوم البيانية التفاعلية للاتجاه."),
 }
 
 
