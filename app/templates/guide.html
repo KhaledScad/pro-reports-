@@ -5,12 +5,12 @@
 <p class="muted">{{ t('guide_intro') }}</p>
 
 <div class="guide-tabs" role="tablist">
-  <button type="button" class="guide-tab-btn active" data-guide-tab="qes" aria-selected="true">{{ t('guide_tab_qes') }}</button>
-  <button type="button" class="guide-tab-btn" data-guide-tab="fisq" aria-selected="false">{{ t('guide_tab_fisq') }}</button>
+  <button type="button" class="guide-tab-btn {{ 'active' if guide_tab != 'fisq' }}" data-guide-tab="qes" aria-selected="{{ 'true' if guide_tab != 'fisq' else 'false' }}">{{ t('guide_tab_qes') }}</button>
+  <button type="button" class="guide-tab-btn {{ 'active' if guide_tab == 'fisq' }}" data-guide-tab="fisq" aria-selected="{{ 'true' if guide_tab == 'fisq' else 'false' }}">{{ t('guide_tab_fisq') }}</button>
 </div>
-<p class="guide-current-label">{{ t('guide_now_viewing') }}: <strong id="guide-current-name">{{ t('guide_tab_qes') }}</strong></p>
+<p class="guide-current-label">{{ t('guide_now_viewing') }}: <strong id="guide-current-name">{{ t('guide_tab_fisq') if guide_tab == 'fisq' else t('guide_tab_qes') }}</strong></p>
 
-<div class="guide-panel" id="guide-panel-qes">
+<div class="guide-panel" id="guide-panel-qes" {{ 'hidden' if guide_tab == 'fisq' }}>
 
   <div class="card">
     <h3>{{ t('guide_howto_qes_title') }}</h3>
@@ -132,7 +132,7 @@
 
 </div>
 
-<div class="guide-panel" id="guide-panel-fisq" hidden>
+<div class="guide-panel" id="guide-panel-fisq" {{ 'hidden' if guide_tab != 'fisq' }}>
 
   <div class="card">
     <h3>{{ t('guide_howto_fisq_title') }}</h3>

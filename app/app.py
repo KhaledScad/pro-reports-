@@ -172,11 +172,11 @@ def dashboard(request: Request):
 
 
 @app.get("/guide", response_class=HTMLResponse)
-def guide(request: Request):
+def guide(request: Request, tab: str = "qes"):
     user = require_login(request)
     if not user:
         return RedirectResponse("/login")
-    return render(request, "guide.html")
+    return render(request, "guide.html", guide_tab="fisq" if tab == "fisq" else "qes")
 
 
 # ----------------------------------------------------------------- admin ---
