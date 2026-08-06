@@ -26,24 +26,29 @@ Every record is classified per quarter, before any formula is applied. The class
 | Transport | 49–53 | transport, storage | نقل، تخزين |
 | Other | *(none of the above)* | — | — |
 
-`Other` is a fallback and uses the same formula as `Industry`.
+`Other` is a fallback and, unlike before, is now treated the same as `Construction`/`Transport` (no cost of goods) — not the same as `Industry`.
 
 ### 1.2 Gross Output & Intermediate Consumption, by activity
 
+Trade and Industry both have a **cost of goods** (per SCAD's QES + FDI validation rules), so their Gross Output is computed from inventory movement rather than being plain Revenue. The same uploaded `RAW_Material` column is reused for two different real-world concepts depending on the activity: for Industry it is the raw material *used in production*; for Trade it is the *net purchases for resale*. Construction, Transport, and every other activity (services, real estate, ...) have no cost-of-goods concept in the survey, so Gross Output is simply Revenue.
+
 | Activity | Gross Output (GO) | Intermediate Consumption (IC) |
 |---|---|---|
-| **Trade** | Revenue + Inventory(end) − Inventory(begin) − Raw material *(this is the "trade margin")* | IC as reported in the file, else Operations cost + Expenses |
-| **Construction / Transport** | Revenue | IC as reported in the file, else Operations cost + Expenses |
-| **Industry / Other** | Revenue + Inventory(end) − Inventory(begin) | IC as reported in the file, else Operations cost + Expenses + Raw material |
+| **Trade** | Revenue + Inventory(end) − Inventory(begin) − Raw material *(net purchases for resale — this is the "gross profit margin")* | IC as reported in the file, else Operations cost + Expenses |
+| **Industry** | Revenue + Inventory(end) − Inventory(begin) − Raw material *(raw material used in production — this is the "gross profit margin")* | IC as reported in the file, else Operations cost + Expenses + Raw material |
+| **Construction / Transport / Other** | Revenue | IC as reported in the file, else Operations cost + Expenses |
 
 "IC as reported in the file" means: if the uploaded `IC` column has a non-zero value for that record/period, it is used as-is instead of being computed from its components.
 
 ### 1.3 Shared formulas (every activity)
 
+Profit/Loss is also activity-dependent. For Trade and Industry, the reported Total Expenses figure already includes the raw material / net-purchases line item as one of its components (it's one of the itemized expense lines that sum to the reported total) — so when Profit is computed from the gross margin (which has already netted out that same raw-material figure via Gross Output above), the raw-material amount is backed out of Total Expenses first, to avoid subtracting it twice.
+
 | Field | Formula |
 |---|---|
 | Added Value | Gross Output − Intermediate Consumption |
-| Profit | Revenue − Expenses |
+| Profit — Trade / Industry | Gross Output − (Expenses − Raw material) |
+| Profit — Construction / Transport / Other | Revenue − Expenses |
 | Average Salary | Employee compensation ÷ Employees ÷ 3 *(converts the quarterly compensation figure to a monthly one)* |
 | Profit % | Profit ÷ \|Revenue\| × 100 |
 | Added Value % | Added Value ÷ \|Gross Output\| × 100 |

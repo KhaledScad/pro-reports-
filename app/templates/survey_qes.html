@@ -77,19 +77,24 @@
       = {{ c.total_revenue|fmt }} + {{ c.end_inventory|fmt }} &minus; {{ c.begin_inventory|fmt }} &minus; {{ c.raw_material|fmt }} = <strong>{{ c.gross_output|fmt }}</strong></div>
     <div class="formula-line">{{ t('intermediate_consumption') }} = Operations cost + Expenses
       = {{ c.operations_cost|fmt }} + {{ c.total_expenses|fmt }} = <strong>{{ c.intermediate_consumption|fmt }}</strong></div>
-    {% elif c.business_class in ("Construction", "Transport") %}
+    {% elif c.business_class == "Industry" %}
+    <div class="formula-line">{{ t('gross_output') }} = Revenue + Inv.End &minus; Inv.Begin &minus; Raw material
+      = {{ c.total_revenue|fmt }} + {{ c.end_inventory|fmt }} &minus; {{ c.begin_inventory|fmt }} &minus; {{ c.raw_material|fmt }} = <strong>{{ c.gross_output|fmt }}</strong></div>
+    <div class="formula-line">{{ t('intermediate_consumption') }} = Operations cost + Expenses + Raw material
+      = {{ c.operations_cost|fmt }} + {{ c.total_expenses|fmt }} + {{ c.raw_material|fmt }} = <strong>{{ c.intermediate_consumption|fmt }}</strong></div>
+    {% else %}
     <div class="formula-line">{{ t('gross_output') }} = Revenue = <strong>{{ c.gross_output|fmt }}</strong></div>
     <div class="formula-line">{{ t('intermediate_consumption') }} = Operations cost + Expenses
       = {{ c.operations_cost|fmt }} + {{ c.total_expenses|fmt }} = <strong>{{ c.intermediate_consumption|fmt }}</strong></div>
-    {% else %}
-    <div class="formula-line">{{ t('gross_output') }} = Revenue + Inv.End &minus; Inv.Begin
-      = {{ c.total_revenue|fmt }} + {{ c.end_inventory|fmt }} &minus; {{ c.begin_inventory|fmt }} = <strong>{{ c.gross_output|fmt }}</strong></div>
-    <div class="formula-line">{{ t('intermediate_consumption') }} = Operations cost + Expenses + Raw material
-      = {{ c.operations_cost|fmt }} + {{ c.total_expenses|fmt }} + {{ c.raw_material|fmt }} = <strong>{{ c.intermediate_consumption|fmt }}</strong></div>
     {% endif %}
     <div class="formula-line">{{ t('added_value') }} = {{ t('gross_output') }} &minus; {{ t('intermediate_consumption') }}
       = {{ c.gross_output|fmt }} &minus; {{ c.intermediate_consumption|fmt }} = <strong>{{ c.added_value|fmt }}</strong></div>
+    {% if c.has_cost_of_goods %}
+    <div class="formula-line">{{ t('profit') }} = {{ t('gross_output') }} &minus; (Expenses &minus; Raw material)
+      = {{ c.gross_output|fmt }} &minus; ({{ c.total_expenses|fmt }} &minus; {{ c.raw_material|fmt }}) = <strong>{{ c.profit|fmt }}</strong></div>
+    {% else %}
     <div class="formula-line">{{ t('profit') }} = Revenue &minus; Expenses = {{ c.total_revenue|fmt }} &minus; {{ c.total_expenses|fmt }} = <strong>{{ c.profit|fmt }}</strong></div>
+    {% endif %}
     <div class="formula-line">{{ t('average_salary') }} = Employee compensation &divide; Employees &divide; 3
       = {{ c.employee_salary|fmt }} &divide; {{ c.employees|fmt }} &divide; 3 = <strong>{{ c.average_salary|fmt }}</strong></div>
   </div>

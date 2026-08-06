@@ -1,19 +1,32 @@
 """
 QES (Quarter Economic Survey) calculation engine.
 
-Ported from the final effective JS logic (the v43 patch, which is the last
-one that touches QES formulas). Business type drives which formula applies:
+Business type drives which formula applies (per SCAD's QES + FDI validation
+rules: industrial establishments, commercial establishments, and "the rest
+of the economic surveys" — services / construction / real estate / transport
+& storage each have their own Profit/Loss rule):
 
-  Industry:               GO = Revenue + InvEnd - InvBegin
-                           IC = IC (file) or Ops + Expenses + RawMaterial
-  Trade:                   GO = TradeMargin = Revenue + InvEnd - InvBegin - RawMaterial
-                           IC = IC (file) or Ops + Expenses
-  Construction / Transport: GO = Revenue
-                           IC = IC (file) or Ops + Expenses
-  Other (fallback):        same as Industry
+  Industry:                 GO = Gross margin = Revenue + InvEnd - InvBegin - RawMaterial
+                             IC = IC (file) or Ops + Expenses + RawMaterial
+                             Profit = Gross margin - (Expenses - RawMaterial)
+  Trade:                     GO = Gross margin = Revenue + InvEnd - InvBegin - RawMaterial
+                             IC = IC (file) or Ops + Expenses
+                             Profit = Gross margin - (Expenses - RawMaterial)
+  Construction / Transport /
+  Other (services, real      GO = Revenue
+  estate, ...):               IC = IC (file) or Ops + Expenses
+                             Profit = Revenue - Expenses
+
+Industry and Trade both compute a Cost-of-Goods-based gross margin first
+(inventory movement minus the raw material used / net purchases for resale —
+the same "RawMaterial" column doubles as either concept depending on the
+establishment's activity). Because the reported Total Expenses figure already
+includes that raw-material/purchases line item, it is backed out again before
+being subtracted from the gross margin, so it is not counted twice. Every
+other activity (no cost-of-goods concept in the survey) uses the simple
+Revenue - Expenses rule.
 
   Added Value      = GO - IC
-  Profit           = Revenue - Expenses
   Average Salary   = Employee_Salary / Employees / 3   (quarterly salary -> monthly)
 """
 from __future__ import annotations
@@ -86,24 +99,24 @@ def calc_qes_period(row: dict, period: str, lang: str = "en") -> dict:
 
     cls = classify_business(row, period)
     trade_margin = 0.0
-    if cls == "Trade":
+    has_cost_of_goods = cls in ("Trade", "Industry")
+    if has_cost_of_goods:
         trade_margin = rev + inv_end - inv_begin - raw
         gross_output = trade_margin
-        ic = ic_file or (ops + exp)
-    elif cls == "Construction" or cls == "Transport":
+        ic = ic_file or (ops + exp) if cls == "Trade" else ic_file or (ops + exp + raw)
+        profit = trade_margin - (exp - raw)
+    else:  # Construction, Transport, and everything else (services, real estate, ...)
         gross_output = rev
         ic = ic_file or (ops + exp)
-    else:  # Industry or Other (fallback uses the industry formula)
-        gross_output = rev + inv_end - inv_begin
-        ic = ic_file or (ops + exp + raw)
+        profit = rev - exp
 
     added_value = gross_output - ic
-    profit = rev - exp
     average_salary = (sal / employees / 3) if (sal and employees) else 0.0
 
     return {
         "period": period,
         "business_class": cls,
+        "has_cost_of_goods": has_cost_of_goods,
         "business_type": activity_label(row, period, lang) or cls,
         "total_revenue": rev,
         "total_expenses": exp,
