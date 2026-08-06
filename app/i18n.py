@@ -86,6 +86,21 @@ TRANSLATIONS: dict[str, tuple[str, str]] = {
     "movement_heading": ("Beginning vs end of period", "بداية المدة مقابل نهاية المدة"),
     "balanced": ("Balanced", "متوازن"),
     "needs_review": ("Needs review", "بحاجة للمراجعة"),
+
+    # annual ISIC cross-check against AES / FIS (shown on both QES & FISQ comparison pages)
+    "year": ("Year", "السنة"),
+    "annual_isic_title": ("ISIC cross-check — AES / FIS", "المطابقة السنوية لتصنيف ISIC4 — AES / FIS"),
+    "annual_isic_desc": ("Checks the ISIC classification this establishment reported in its annual AES and FIS filings, for the last 3 years available, against the same Frame ID. It should stay the same every year; a change is flagged in red.",
+                         "يتحقق من تصنيف ISIC4 الذي أبلغت عنه المنشأة في استماراتها السنوية AES وFIS، لآخر 3 سنوات متاحة، لنفس رقم الإطار. يجب أن يبقى التصنيف كما هو كل سنة؛ ويُشار إلى أي تغيير باللون الأحمر."),
+    "annual_isic_aes_title": ("AES", "AES"),
+    "annual_isic_fis_title": ("FIS", "FIS"),
+    "annual_isic_no_data": ("No annual data has been uploaded for this Frame ID yet.", "لم يتم رفع بيانات سنوية لرقم الإطار هذا بعد."),
+    "annual_isic_aes_upload_text": ("Upload an Excel file with a Frame ID column plus one {YYYY}_ISIC4 column per year (e.g. 2023_ISIC4, 2024_ISIC4, 2025_ISIC4) from the AES annual filing.",
+                                    "ارفع ملف إكسل يحتوي على عمود رقم الإطار بالإضافة إلى عمود {YYYY}_ISIC4 لكل سنة (مثل 2023_ISIC4، 2024_ISIC4، 2025_ISIC4) من استمارة AES السنوية."),
+    "annual_isic_fis_upload_text": ("Upload an Excel file with a Frame ID column plus one {YYYY}_ISIC4 column per year (e.g. 2023_ISIC4, 2024_ISIC4, 2025_ISIC4) from the FIS annual filing.",
+                                    "ارفع ملف إكسل يحتوي على عمود رقم الإطار بالإضافة إلى عمود {YYYY}_ISIC4 لكل سنة (مثل 2023_ISIC4، 2024_ISIC4، 2025_ISIC4) من استمارة FIS السنوية."),
+    "annual_isic_upload_hint": ("These two files only feed the ISIC cross-check on the QES/FISQ comparison pages — they don't add AES or FIS as survey types of their own.",
+                                "يُستخدم هذان الملفان فقط لتغذية مطابقة تصنيف ISIC4 في صفحات مقارنة QES وFISQ — ولا يضيفان AES أو FIS كنوعي مسح مستقلين."),
     # home / workspace overview
     "workspace_title": ("Proactive Reporting Workspace", "مساحة عمل التقارير الاستباقية"),
     "workspace_desc": ("This portal gives each role a clear and controlled way to work with survey data. Admin uploads the source files, supervisors review team records, and users calculate only the records assigned to them.",

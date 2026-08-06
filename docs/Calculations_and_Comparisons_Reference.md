@@ -76,9 +76,11 @@ Profit/Loss is also activity-dependent. For Trade and Industry, the reported Tot
 Default period selection is the current quarter plus the previous three (the last four periods found in the record), or whichever quarters the user explicitly checks.
 
 1. **Financial comparison** — Period, Revenue, Expenditure, Profit, Added Value, Intermediate Consumption, Profit %, Added Value %, IC %. Each cell (after the first period) is colored green if it rose versus the prior selected period, red if it fell.
-2. **Inventory continuity check** — for every period after the first, verifies that this period's start-of-period inventory equals the previous period's end-of-period inventory (within 0.01). Flags "Mismatch" otherwise.
-3. **Employee comparison** — Employees, Compensation, Average salary, Expenditure, Revenue, plus the period-over-period change in employee count (both count and %).
-4. **Trend charts** — see §3 below.
+2. **ISIC classification stability** — the record's `ISIC4` value across the compared quarters; flags red if it changed since the base (first-selected) period.
+3. **Annual ISIC cross-check (AES / FIS)** — see §2.4 below (shared with FISQ's comparison page).
+4. **Inventory continuity check** — for every period after the first, verifies that this period's start-of-period inventory equals the previous period's end-of-period inventory (within 0.01). Flags "Mismatch" otherwise.
+5. **Employee comparison** — Employees, Compensation, Average salary, Expenditure, Revenue, plus the period-over-period change in employee count (both count and %).
+6. **Trend charts** — see §3 below.
 
 ---
 
@@ -114,8 +116,19 @@ Default period selection is the current quarter plus the previous three (the las
 Same default period selection as QES (current quarter + previous three, or the periods explicitly checked).
 
 1. **Asset equation comparison** — Period, Current assets, Non-current assets, Total assets, Current liabilities, Non-current liabilities, Total liabilities, Calculated equity, Equity in form, Difference. Same green/red trend coloring as QES.
-2. **Equity details (7.1–7.6)** — each line item, their total, the 7.2+7.3 subtotal, equity in form, the difference, and status.
-3. **Validation** — Assets: file vs. calculated; Liabilities: file vs. calculated; difference; Balanced / Needs review.
+2. **Beginning vs end of period** — see `calc_fisq_period_movement()`: the asset equation computed separately for the start and close of each quarter.
+3. **ISIC classification stability** — same as QES §1.5.2, using the FISQ record's own `ISIC4` value.
+4. **Annual ISIC cross-check (AES / FIS)** — see §2.4 below.
+5. **Equity details (7.1–7.6)** — each line item, their total, the 7.2+7.3 subtotal, equity in form, the difference, and status.
+6. **Validation** — Assets: file vs. calculated; Liabilities: file vs. calculated; difference; Balanced / Needs review.
+
+### 2.4 Annual ISIC cross-check (AES / FIS) — shown on both `/compare/qes` and `/compare/fisq`
+
+Independent of the quarterly QES/FISQ data, the admin can upload two small **annual** reference files — one from the AES filing, one from the FIS filing — each containing just a Frame ID column plus one `{YYYY}_ISIC4` wide column per year (e.g. `2023_ISIC4`, `2024_ISIC4`, `2025_ISIC4`). These are *not* full survey types: no calculation engine, no `/survey` or `/compare` page of their own, no dashboard "access" card — they exist solely to feed this cross-check table.
+
+For the Frame ID being compared, the tool shows the last 3 years found in each of the AES and FIS files, side by side, and flags red if the ISIC4 value changed from one year to the next (green if unchanged). If nothing has been uploaded for that Frame ID in either file, the table shows "No annual data has been uploaded for this Frame ID yet." instead.
+
+Storage: `database.py`'s `ANNUAL_ISIC_SOURCES = ["AES", "FIS"]`, each with its own SQLite file (`aes.db` / `fis.db`), the same generic `records` table schema as QES/FISQ, uploaded via the same `/admin/upload/{kind}/preview` → `/confirm` flow (`kind` = `aes` or `fis`). Extraction: `calc_common.annual_isic_series()`.
 4. **Trend charts** — see §3 below. FISQ has no percentage fields, so its charts only ever split by value scale, never by a percentage group.
 
 ---

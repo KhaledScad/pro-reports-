@@ -121,6 +121,21 @@ def get_periods(row: dict) -> list[str]:
     return sorted(found, key=sort_key)
 
 
+_YEAR_ISIC_RE = re.compile(r"^(\d{4})_ISIC4$", re.IGNORECASE)
+
+
+def annual_isic_series(row: dict) -> list[tuple[str, str]]:
+    """Extract every {YYYY}_ISIC4 wide column (the annual-file counterpart
+    of QES/FISQ's {Q#_YYYY}_... columns), sorted oldest-to-newest year."""
+    out = []
+    for k in row_keys(row):
+        m = _YEAR_ISIC_RE.match(clean(k))
+        if m:
+            out.append((m.group(1), clean(row[k])))
+    out.sort(key=lambda pair: pair[0])
+    return out
+
+
 def period_label(p: str, lang: str = "en") -> str:
     m = re.match(r"^(Q[1-4])_(\d{4})$", p or "")
     if not m:

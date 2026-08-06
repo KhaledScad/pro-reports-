@@ -42,7 +42,15 @@ LOCAL_DATA_DIR = Path(os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()) /
 LOCAL_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 SURVEY_TYPES = ["QES", "FISQ"]
-ALL_DB_NAMES = ["main"] + SURVEY_TYPES
+
+# Minimal annual reference data (Frame ID + {YYYY}_ISIC4 columns only) used
+# purely to cross-check ISIC classification stability on the QES/FISQ
+# comparison pages against the establishment's AES / FIS annual filings.
+# These are deliberately NOT full survey types: no calculation engine, no
+# /survey or /compare pages of their own, no dashboard "access" cards.
+ANNUAL_ISIC_SOURCES = ["AES", "FIS"]
+
+ALL_DB_NAMES = ["main"] + SURVEY_TYPES + ANNUAL_ISIC_SOURCES
 
 SYNC_INTERVAL_SECONDS = 60
 
@@ -148,8 +156,9 @@ def init_db() -> None:
                 ("admin", "Admin@123", "ADMIN", "Setup Admin", "Administrator", "Abu Dhabi"),
             )
 
-    # One records table per survey type, in its own database file.
-    for survey_type in SURVEY_TYPES:
+    # One records table per survey type (and per annual-ISIC source), each
+    # in its own database file.
+    for survey_type in SURVEY_TYPES + ANNUAL_ISIC_SOURCES:
         with get_conn(survey_type) as conn:
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS records (
@@ -262,3 +271,16 @@ def distinct_frame_ids(survey_type: str, limit: int = 200) -> list[str]:
 def record_count(survey_type: str) -> int:
     with get_conn(survey_type) as conn:
         return conn.execute("SELECT COUNT(*) AS c FROM records").fetchone()["c"]
+
+
+def annual_isic_by_frame(source: str, frame_id: str) -> dict:
+    """Merged {YYYY}_ISIC4 wide-column data for one Frame ID from an annual
+    ISIC source (AES/FIS) — empty dict if nothing was uploaded for it."""
+    target = frame_id.strip().lower()
+    matches = [r for r in all_records(source) if r["frame_id"].strip().lower() == target]
+    if not matches:
+        matches = [r for r in all_records(source) if target in r["frame_id"].strip().lower()]
+    merged: dict = {}
+    for r in matches:
+        merged.update(r["data"])
+    return merged

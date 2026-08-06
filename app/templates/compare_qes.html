@@ -92,6 +92,55 @@
 </div>
 
 <div class="card">
+  <h3>{{ t('annual_isic_title') }}</h3>
+  <p class="muted">{{ t('annual_isic_desc') }}</p>
+
+  <h4 style="margin:18px 0 8px;">{{ t('annual_isic_aes_title') }}</h4>
+  {% if aes_isic_rows %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>{{ t('year') }}</th><th>{{ t('isic4') }}</th><th>{{ t('status') }}</th></tr></thead>
+      <tbody>
+        {% for ir in aes_isic_rows %}
+        <tr>
+          <td>{{ ir.year }}</td>
+          <td>{{ ir.isic4 or '-' }}</td>
+          <td class="{{ '' if ir.is_base else ('negative' if ir.changed else 'positive') }}">
+            {{ t('base_period') if ir.is_base else (t('changed') if ir.changed else t('no_change')) }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted small">{{ t('annual_isic_no_data') }}</p>
+  {% endif %}
+
+  <h4 style="margin:18px 0 8px;">{{ t('annual_isic_fis_title') }}</h4>
+  {% if fis_isic_rows %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>{{ t('year') }}</th><th>{{ t('isic4') }}</th><th>{{ t('status') }}</th></tr></thead>
+      <tbody>
+        {% for ir in fis_isic_rows %}
+        <tr>
+          <td>{{ ir.year }}</td>
+          <td>{{ ir.isic4 or '-' }}</td>
+          <td class="{{ '' if ir.is_base else ('negative' if ir.changed else 'positive') }}">
+            {{ t('base_period') if ir.is_base else (t('changed') if ir.changed else t('no_change')) }}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted small">{{ t('annual_isic_no_data') }}</p>
+  {% endif %}
+</div>
+
+<div class="card">
   <h3>{{ t('inventory_continuity') }}</h3>
   <div class="table-wrap">
     <table>

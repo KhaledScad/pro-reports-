@@ -28,6 +28,20 @@
 </div>
 <p class="muted small">{{ t('survey_data_text') }}</p>
 
+<div class="grid grid-2" style="margin-top:12px;">
+  {% for tp in ["AES", "FIS"] %}
+  <div class="card upload-card">
+    <h3>{{ tp }} <span class="muted small">({{ annual_isic_counts[tp] }} {{ t('records_loaded') }})</span></h3>
+    <p class="muted">{{ t('annual_isic_' + tp|lower + '_upload_text') }}</p>
+    <form method="post" action="/admin/upload/{{ tp|lower }}/preview" enctype="multipart/form-data">
+      <input type="file" name="file" accept=".xlsx,.xls" required />
+      <button type="submit" class="btn" style="margin-top:10px;">{{ t('next_choose_sheet') }}</button>
+    </form>
+  </div>
+  {% endfor %}
+</div>
+<p class="muted small">{{ t('annual_isic_upload_hint') }}</p>
+
 <div class="card" style="margin-top:20px;">
   <h3>{{ t('users') }} ({{ users|length }})</h3>
   <div class="table-wrap">

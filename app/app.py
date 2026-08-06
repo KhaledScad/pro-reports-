@@ -13,7 +13,7 @@ from . import auth
 from . import excel_utils
 from . import tempstore
 from . import i18n
-from .calc_common import fmt, pct, period_label, get_periods, record_meta, text_val
+from .calc_common import fmt, pct, period_label, get_periods, record_meta, text_val, annual_isic_series
 from .calculations_qes import calc_qes
 from .calculations_fisq import calc_fisq, calc_fisq_period_movement
 
@@ -119,6 +119,22 @@ def merged_row(records: list[dict]) -> dict:
     return merged
 
 
+def annual_isic_rows(source: str, frame_id: str) -> list[dict] | None:
+    """Last 3 years of {YYYY}_ISIC4 data for this Frame ID from an annual
+    ISIC source (AES/FIS) — None if nothing was ever uploaded for it."""
+    data = db.annual_isic_by_frame(source, frame_id)
+    if not data:
+        return None
+    series = annual_isic_series(data)[-3:]
+    rows = []
+    prev = None
+    for i, (year, isic4) in enumerate(series):
+        changed = i > 0 and isic4 != prev
+        rows.append({"year": year, "isic4": isic4, "is_base": i == 0, "changed": changed})
+        prev = isic4
+    return rows
+
+
 # ------------------------------------------------------------------ auth ---
 
 @app.get("/", response_class=HTMLResponse)
@@ -187,12 +203,13 @@ def admin_page(request: Request):
     if not user or not auth.is_admin(user):
         return RedirectResponse("/dashboard")
     counts = {t: db.record_count(t) for t in db.SURVEY_TYPES}
-    return render(request, "admin.html", counts=counts, users=db.list_users(),
-                  logs=db.list_logs(200), message=request.query_params.get("message"),
-                  error=request.query_params.get("error"))
+    annual_isic_counts = {s: db.record_count(s) for s in db.ANNUAL_ISIC_SOURCES}
+    return render(request, "admin.html", counts=counts, annual_isic_counts=annual_isic_counts,
+                  users=db.list_users(), logs=db.list_logs(200),
+                  message=request.query_params.get("message"), error=request.query_params.get("error"))
 
 
-UPLOAD_KINDS = {*db.SURVEY_TYPES, "ACCOUNTS"}
+UPLOAD_KINDS = {*db.SURVEY_TYPES, *db.ANNUAL_ISIC_SOURCES, "ACCOUNTS"}
 
 
 @app.post("/admin/upload/{kind}/preview")
@@ -374,6 +391,12 @@ def compare_view(request: Request, survey_type: str, frame_id: str = "", periods
     if survey_type == "FISQ" and calcs:
         movement_rows = [calc_fisq_period_movement(row, c["period"]) for c in calcs]
 
+    # Annual ISIC cross-check against the AES / FIS annual filings for the
+    # same Frame ID, last 3 years — shown on both the QES and FISQ
+    # comparison pages regardless of which one is currently open.
+    aes_isic_rows = annual_isic_rows("AES", frame_id) if frame_id else None
+    fis_isic_rows = annual_isic_rows("FIS", frame_id) if frame_id else None
+
     chart = None
     if calcs:
         var_defs = CHART_VARIABLES[survey_type]
@@ -388,7 +411,8 @@ def compare_view(request: Request, survey_type: str, frame_id: str = "", periods
     return render(request, template, survey_type=survey_type, frame_id=frame_id, frame_options=frame_options,
                   all_periods=all_periods, selected_periods=[c["period"] for c in calcs], calcs=calcs,
                   inventory_rows=inventory_rows, employee_rows=employee_rows, isic_rows=isic_rows,
-                  movement_rows=movement_rows, error=error, row=row, meta=meta, chart=chart)
+                  movement_rows=movement_rows, aes_isic_rows=aes_isic_rows, fis_isic_rows=fis_isic_rows,
+                  error=error, row=row, meta=meta, chart=chart)
 
 
 # ------------------------------------------------------------------ main ---
