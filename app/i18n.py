@@ -87,11 +87,17 @@ TRANSLATIONS: dict[str, tuple[str, str]] = {
     "balanced": ("Balanced", "متوازن"),
     "needs_review": ("Needs review", "بحاجة للمراجعة"),
 
-    # annual ISIC cross-check against AES / FIS (shown on both QES & FISQ comparison pages)
+    # annual ISIC cross-check — QES compares against AES, FISQ compares against FIS
     "year": ("Year", "السنة"),
     "annual_isic_title": ("ISIC cross-check — AES / FIS", "المطابقة السنوية لتصنيف ISIC4 — AES / FIS"),
-    "annual_isic_desc": ("Checks the ISIC classification this establishment reported in its annual AES and FIS filings, for the last 3 years available, against the same Frame ID. It should stay the same every year; a change is flagged in red.",
-                         "يتحقق من تصنيف ISIC4 الذي أبلغت عنه المنشأة في استماراتها السنوية AES وFIS، لآخر 3 سنوات متاحة، لنفس رقم الإطار. يجب أن يبقى التصنيف كما هو كل سنة؛ ويُشار إلى أي تغيير باللون الأحمر."),
+    "annual_isic_desc": ("Checks the ISIC classification this establishment reported in its annual filing, for the last 3 years available, against the same Frame ID: QES is checked against the AES annual filing, FISQ against the FIS annual filing. It should stay the same every year; a change is flagged in red.",
+                         "يتحقق من تصنيف ISIC4 الذي أبلغت عنه المنشأة في استمارتها السنوية، لآخر 3 سنوات متاحة، لنفس رقم الإطار: يُقارَن QES باستمارة AES السنوية، وFISQ باستمارة FIS السنوية. يجب أن يبقى التصنيف كما هو كل سنة؛ ويُشار إلى أي تغيير باللون الأحمر."),
+    "annual_isic_title_qes": ("ISIC cross-check — AES", "المطابقة السنوية لتصنيف ISIC4 — AES"),
+    "annual_isic_desc_qes": ("Checks the ISIC classification this establishment reported in its annual AES filing, for the last 3 years available, against the same Frame ID. It should stay the same every year; a change is flagged in red.",
+                            "يتحقق من تصنيف ISIC4 الذي أبلغت عنه المنشأة في استمارة AES السنوية، لآخر 3 سنوات متاحة، لنفس رقم الإطار. يجب أن يبقى التصنيف كما هو كل سنة؛ ويُشار إلى أي تغيير باللون الأحمر."),
+    "annual_isic_title_fisq": ("ISIC cross-check — FIS", "المطابقة السنوية لتصنيف ISIC4 — FIS"),
+    "annual_isic_desc_fisq": ("Checks the ISIC classification this establishment reported in its annual FIS filing, for the last 3 years available, against the same Frame ID. It should stay the same every year; a change is flagged in red.",
+                             "يتحقق من تصنيف ISIC4 الذي أبلغت عنه المنشأة في استمارة FIS السنوية، لآخر 3 سنوات متاحة، لنفس رقم الإطار. يجب أن يبقى التصنيف كما هو كل سنة؛ ويُشار إلى أي تغيير باللون الأحمر."),
     "annual_isic_aes_title": ("AES", "AES"),
     "annual_isic_fis_title": ("FIS", "FIS"),
     "annual_isic_no_data": ("No annual data has been uploaded for this Frame ID yet.", "لم يتم رفع بيانات سنوية لرقم الإطار هذا بعد."),

@@ -412,11 +412,10 @@ def compare_view(request: Request, survey_type: str, frame_id: str = "", periods
     if survey_type == "FISQ" and calcs:
         movement_rows = [calc_fisq_period_movement(row, c["period"]) for c in calcs]
 
-    # Annual ISIC cross-check against the AES / FIS annual filings for the
-    # same Frame ID, last 3 years — shown on both the QES and FISQ
-    # comparison pages regardless of which one is currently open.
-    aes_isic_rows = annual_isic_rows("AES", frame_id) if frame_id else None
-    fis_isic_rows = annual_isic_rows("FIS", frame_id) if frame_id else None
+    # Annual ISIC cross-check against the same Frame ID's annual filing,
+    # last 3 years — QES compares against AES, FISQ compares against FIS.
+    aes_isic_rows = annual_isic_rows("AES", frame_id) if (survey_type == "QES" and frame_id) else None
+    fis_isic_rows = annual_isic_rows("FIS", frame_id) if (survey_type == "FISQ" and frame_id) else None
 
     chart = None
     if calcs:
