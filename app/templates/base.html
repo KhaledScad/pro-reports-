@@ -5,11 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}{{ t('app_title') }}{% endblock %}</title>
   <link rel="stylesheet" href="/static/style.css?v={{ static_version }}" />
+  <link rel="icon" type="image/png" href="/static/logo.png?v={{ static_version }}" />
 </head>
 <body class="{{ 'rtl' if lang == 'ar' else '' }}">
   <header>
     <div class="brand">
-      <div class="brand-dot"></div>
+      <img src="/static/logo.png?v={{ static_version }}" alt="{{ t('app_title') }}" class="brand-logo"
+           onerror="this.style.display='none'; this.nextElementSibling.style.display='block';" />
+      <div class="brand-dot" style="display:none;"></div>
       <div>
         <div class="brand-title">{{ t('app_title') }}</div>
         <div class="brand-subtitle">{{ t('app_subtitle') }}</div>
