@@ -24,7 +24,7 @@ header {
   position: sticky; top: 0; z-index: 10; flex-wrap: wrap;
 }
 .brand { display: flex; align-items: center; gap: 12px; }
-.brand-logo { height: 40px; width: auto; flex-shrink: 0; }
+.brand-logo { height: 54px; width: auto; flex-shrink: 0; }
 .brand-dot { width: 14px; height: 14px; border-radius: 50%; background: var(--brand); flex-shrink: 0; }
 .brand-title { font-size: 20px; font-weight: 800; }
 .brand-subtitle { font-size: 12px; color: var(--muted); }
