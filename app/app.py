@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Form, UploadFile, File, Query
-from fastapi.responses import RedirectResponse, HTMLResponse
+from fastapi.responses import RedirectResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
@@ -13,6 +13,7 @@ from . import auth
 from . import excel_utils
 from . import tempstore
 from . import i18n
+from . import variable_reference
 from .calc_common import fmt, pct, period_label, get_periods, record_meta, text_val, annual_isic_series
 from .calculations_qes import calc_qes
 from .calculations_fisq import calc_fisq, calc_fisq_period_movement
@@ -207,6 +208,26 @@ def admin_page(request: Request):
     return render(request, "admin.html", counts=counts, annual_isic_counts=annual_isic_counts,
                   users=db.list_users(), logs=db.list_logs(200),
                   message=request.query_params.get("message"), error=request.query_params.get("error"))
+
+
+@app.get("/admin/variables/{survey_type}.xlsx")
+def download_variable_reference(request: Request, survey_type: str):
+    """Admin-only technical variable reference: every column the app looks
+    for, the label auditors see, a description, and calc/comparison usage."""
+    user = require_login(request)
+    if not user or not auth.is_admin(user):
+        return RedirectResponse("/dashboard")
+    survey_type = survey_type.upper()
+    if survey_type not in db.SURVEY_TYPES:
+        return RedirectResponse("/admin?error=Unknown+survey+type", status_code=303)
+    content = variable_reference.build_workbook(survey_type)
+    db.add_log(user["username"], user["authorization"], "VARIABLE_REFERENCE_DOWNLOADED", survey_type)
+    filename = f"{survey_type}_variables.xlsx"
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 UPLOAD_KINDS = {*db.SURVEY_TYPES, *db.ANNUAL_ISIC_SOURCES, "ACCOUNTS"}

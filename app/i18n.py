@@ -101,6 +101,10 @@ TRANSLATIONS: dict[str, tuple[str, str]] = {
                                     "ارفع ملف إكسل يحتوي على عمود رقم الإطار بالإضافة إلى عمود {YYYY}_ISIC4 لكل سنة (مثل 2023_ISIC4، 2024_ISIC4، 2025_ISIC4) من استمارة FIS السنوية."),
     "annual_isic_upload_hint": ("These two files only feed the ISIC cross-check on the QES/FISQ comparison pages — they don't add AES or FIS as survey types of their own.",
                                 "يُستخدم هذان الملفان فقط لتغذية مطابقة تصنيف ISIC4 في صفحات مقارنة QES وFISQ — ولا يضيفان AES أو FIS كنوعي مسح مستقلين."),
+
+    "download_variable_reference": ("Download variable reference (.xlsx)", "تحميل مرجع المتغيرات (.xlsx)"),
+    "variable_reference_hint": ("Each variable reference file lists every technical column the app looks for, the label auditors see for it, a description, and whether it's used on the Calculation page, the Comparison page, or both — including a second sheet on the AES/FIS annual ISIC columns. Admin only.",
+                                "يسرد كل ملف مرجع للمتغيرات كل عمود تقني تبحث عنه الأداة، والتسمية التي يراها المدققون له، ووصفاً، وما إذا كان يُستخدم في صفحة الاحتساب أو المقارنة أو كلتيهما — بالإضافة إلى ورقة ثانية بأعمدة ISIC4 السنوية لـAES/FIS. للمسؤول فقط."),
     # home / workspace overview
     "workspace_title": ("Proactive Reporting Workspace", "مساحة عمل التقارير الاستباقية"),
     "workspace_desc": ("This portal gives each role a clear and controlled way to work with survey data. Admin uploads the source files, supervisors review team records, and users calculate only the records assigned to them.",

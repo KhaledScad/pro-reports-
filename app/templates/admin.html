@@ -23,10 +23,12 @@
       <input type="file" name="file" accept=".xlsx,.xls" required />
       <button type="submit" class="btn" style="margin-top:10px;">{{ t('next_choose_sheet') }}</button>
     </form>
+    <a class="btn ghost small" style="margin-top:8px;" href="/admin/variables/{{ tp|lower }}.xlsx">{{ t('download_variable_reference') }}</a>
   </div>
   {% endfor %}
 </div>
 <p class="muted small">{{ t('survey_data_text') }}</p>
+<p class="muted small">{{ t('variable_reference_hint') }}</p>
 
 <div class="grid grid-2" style="margin-top:12px;">
   {% for tp in ["AES", "FIS"] %}
