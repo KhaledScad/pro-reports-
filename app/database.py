@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import sqlite3
 import tempfile
 import threading
@@ -111,6 +112,22 @@ def _start_background_sync() -> None:
     threading.Thread(target=loop, daemon=True, name="db-durable-sync").start()
 
 
+def get_or_create_session_secret() -> str:
+    """The Starlette session-cookie signing key. Uses SESSION_SECRET_KEY if
+    set; otherwise a random key is generated once and persisted to the
+    durable data directory (gitignored, never committed) so sessions
+    survive app restarts without a hardcoded secret in source."""
+    env_secret = os.environ.get("SESSION_SECRET_KEY")
+    if env_secret:
+        return env_secret
+    secret_path = DURABLE_DATA_DIR / "session_secret.txt"
+    if secret_path.exists():
+        return secret_path.read_text(encoding="utf-8").strip()
+    secret = secrets.token_urlsafe(32)
+    secret_path.write_text(secret, encoding="utf-8")
+    return secret
+
+
 @contextmanager
 def get_conn(name: str):
     conn = sqlite3.connect(_db_path(name))
@@ -147,14 +164,32 @@ def init_db() -> None:
             )
         """)
         # Bootstrap admin so the app is reachable before any Account sheet
-        # has been uploaded.
+        # has been uploaded. No credential is hardcoded in source: set
+        # BOOTSTRAP_ADMIN_USERNAME / BOOTSTRAP_ADMIN_PASSWORD to choose your
+        # own, or leave unset and a random password is generated once and
+        # written to data/bootstrap_admin_credentials.txt (gitignored, never
+        # committed) plus printed to the console on first startup.
         row = conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()
         if row["c"] == 0:
+            username = os.environ.get("BOOTSTRAP_ADMIN_USERNAME", "admin")
+            password = os.environ.get("BOOTSTRAP_ADMIN_PASSWORD") or secrets.token_urlsafe(12)
             conn.execute(
                 "INSERT INTO users (username, password, authorization, name, job, location) "
                 "VALUES (?, ?, ?, ?, ?, ?)",
-                ("admin", "Admin@123", "ADMIN", "Setup Admin", "Administrator", "Abu Dhabi"),
+                (username, password, "ADMIN", "Setup Admin", "Administrator", "Abu Dhabi"),
             )
+            if "BOOTSTRAP_ADMIN_PASSWORD" not in os.environ:
+                notice = (
+                    f"First run: created bootstrap admin account.\n"
+                    f"  username: {username}\n  password: {password}\n"
+                    f"Log in once and upload a real Account sheet, or set BOOTSTRAP_ADMIN_USERNAME / "
+                    f"BOOTSTRAP_ADMIN_PASSWORD to choose your own next time.\n"
+                )
+                print(notice)
+                try:
+                    (DURABLE_DATA_DIR / "bootstrap_admin_credentials.txt").write_text(notice, encoding="utf-8")
+                except OSError:
+                    pass
 
     # One records table per survey type (and per annual-ISIC source), each
     # in its own database file.

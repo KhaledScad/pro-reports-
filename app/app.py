@@ -22,7 +22,7 @@ BASE_DIR = Path(__file__).resolve().parent
 db.init_db()
 
 app = FastAPI(title="Proactive Reporting")
-app.add_middleware(SessionMiddleware, secret_key="proactive-reporting-local-secret-key-change-me")
+app.add_middleware(SessionMiddleware, secret_key=db.get_or_create_session_secret())
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
