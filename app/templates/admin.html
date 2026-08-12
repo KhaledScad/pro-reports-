@@ -59,13 +59,17 @@
 </div>
 
 <div class="card" style="margin-top:20px;">
-  <h3>{{ t('action_logs') }}</h3>
+  <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+    <h3 style="margin:0;">{{ t('action_logs') }}</h3>
+    <a class="btn ghost small" href="/admin/logs/export.xlsx">{{ t('download_logs') }}</a>
+  </div>
+  <p class="muted small">{{ t('action_logs_hint') }}</p>
   <div class="table-wrap" style="max-height:420px;">
     <table>
-      <thead><tr><th>{{ t('time') }}</th><th>{{ t('username') }}</th><th>{{ t('role') }}</th><th>{{ t('action') }}</th><th>{{ t('details') }}</th></tr></thead>
+      <thead><tr><th>{{ t('time') }}</th><th>{{ t('username') }}</th><th>{{ t('role') }}</th><th>{{ t('action') }}</th><th>{{ t('details') }}</th><th>{{ t('ip_address') }}</th></tr></thead>
       <tbody>
         {% for l in logs %}
-        <tr><td>{{ l.time }}</td><td>{{ l.username }}</td><td>{{ l.role }}</td><td>{{ l.action }}</td><td>{{ l.details }}</td></tr>
+        <tr><td>{{ l.time }}</td><td>{{ l.username }}</td><td>{{ l.role }}</td><td>{{ l.action }}</td><td>{{ l.details }}</td><td>{{ l.ip_address or '-' }}</td></tr>
         {% endfor %}
       </tbody>
     </table>

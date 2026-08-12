@@ -14,6 +14,7 @@ from . import excel_utils
 from . import tempstore
 from . import i18n
 from . import variable_reference
+from .logs_export import build_logs_workbook
 from .calc_common import fmt, pct, period_label, get_periods, record_meta, text_val, annual_isic_series
 from .calculations_qes import calc_qes, qes_detail_groups
 from .calculations_fisq import calc_fisq, calc_fisq_period_movement, fisq_component_groups
@@ -100,6 +101,10 @@ def get_lang(request: Request) -> str:
     return request.session.get("lang", "en")
 
 
+def client_ip(request: Request) -> str:
+    return request.client.host if request.client else ""
+
+
 def render(request: Request, template: str, **ctx):
     lang = get_lang(request)
     ctx["user"] = auth.current_user(request)
@@ -166,10 +171,10 @@ def login_page(request: Request):
 def login_submit(request: Request, username: str = Form(...), password: str = Form(...)):
     user = auth.login(username.strip(), password.strip())
     if not user:
-        db.add_log(username, "UNKNOWN", "LOGIN_FAILED", "Invalid username or password")
+        db.add_log(username, "UNKNOWN", "LOGIN_FAILED", "Invalid username or password", client_ip(request))
         return render(request, "login.html", error=i18n.t("invalid_login", get_lang(request)))
     auth.set_session_user(request, user)
-    db.add_log(user["username"], user["authorization"], "LOGIN_SUCCESS", "")
+    db.add_log(user["username"], user["authorization"], "LOGIN_SUCCESS", "", client_ip(request))
     return RedirectResponse("/dashboard", status_code=303)
 
 
@@ -177,7 +182,7 @@ def login_submit(request: Request, username: str = Form(...), password: str = Fo
 def logout(request: Request):
     user = auth.current_user(request)
     if user:
-        db.add_log(user["username"], user["authorization"], "LOGOUT", "")
+        db.add_log(user["username"], user["authorization"], "LOGOUT", "", client_ip(request))
     request.session.clear()
     return RedirectResponse("/login", status_code=303)
 
@@ -195,6 +200,7 @@ def dashboard(request: Request):
         }
         for t in db.SURVEY_TYPES
     ]
+    db.add_log(user["username"], user["authorization"], "DASHBOARD_VIEW", "", client_ip(request))
     return render(request, "dashboard.html", access=access)
 
 
@@ -203,6 +209,7 @@ def guide(request: Request, tab: str = "qes"):
     user = require_login(request)
     if not user:
         return RedirectResponse("/login")
+    db.add_log(user["username"], user["authorization"], "GUIDE_VIEW", tab, client_ip(request))
     return render(request, "guide.html", guide_tab="fisq" if tab == "fisq" else "qes")
 
 
@@ -212,12 +219,33 @@ def guide(request: Request, tab: str = "qes"):
 def admin_page(request: Request):
     user = require_login(request)
     if not user or not auth.is_admin(user):
+        if user:
+            db.add_log(user["username"], user["authorization"], "ADMIN_ACCESS_DENIED", "/admin", client_ip(request))
         return RedirectResponse("/dashboard")
     counts = {t: db.record_count(t) for t in db.SURVEY_TYPES}
     annual_isic_counts = {s: db.record_count(s) for s in db.ANNUAL_ISIC_SOURCES}
+    db.add_log(user["username"], user["authorization"], "ADMIN_PANEL_VIEW", "", client_ip(request))
     return render(request, "admin.html", counts=counts, annual_isic_counts=annual_isic_counts,
                   users=db.list_users(), logs=db.list_logs(200),
                   message=request.query_params.get("message"), error=request.query_params.get("error"))
+
+
+@app.get("/admin/logs/export.xlsx")
+def download_logs_export(request: Request):
+    """Admin-only full activity-log export — every entry ever recorded,
+    not just the most recent 200 shown on the Admin page."""
+    user = require_login(request)
+    if not user or not auth.is_admin(user):
+        if user:
+            db.add_log(user["username"], user["authorization"], "ADMIN_ACCESS_DENIED", "/admin/logs/export.xlsx", client_ip(request))
+        return RedirectResponse("/dashboard")
+    content = build_logs_workbook(db.all_logs())
+    db.add_log(user["username"], user["authorization"], "LOGS_EXPORTED", str(len(db.all_logs())), client_ip(request))
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="activity_logs.xlsx"'},
+    )
 
 
 @app.get("/admin/variables/{survey_type}.xlsx")
@@ -226,12 +254,14 @@ def download_variable_reference(request: Request, survey_type: str):
     for, the label auditors see, a description, and calc/comparison usage."""
     user = require_login(request)
     if not user or not auth.is_admin(user):
+        if user:
+            db.add_log(user["username"], user["authorization"], "ADMIN_ACCESS_DENIED", f"/admin/variables/{survey_type}.xlsx", client_ip(request))
         return RedirectResponse("/dashboard")
     survey_type = survey_type.upper()
     if survey_type not in db.SURVEY_TYPES:
         return RedirectResponse("/admin?error=Unknown+survey+type", status_code=303)
     content = variable_reference.build_workbook(survey_type)
-    db.add_log(user["username"], user["authorization"], "VARIABLE_REFERENCE_DOWNLOADED", survey_type)
+    db.add_log(user["username"], user["authorization"], "VARIABLE_REFERENCE_DOWNLOADED", survey_type, client_ip(request))
     filename = f"{survey_type}_variables.xlsx"
     return StreamingResponse(
         iter([content]),
@@ -248,6 +278,8 @@ async def upload_preview(request: Request, kind: str, file: UploadFile = File(..
     """Step 1: stash the file and let the admin pick which sheet to import."""
     user = require_login(request)
     if not user or not auth.is_admin(user):
+        if user:
+            db.add_log(user["username"], user["authorization"], "ADMIN_ACCESS_DENIED", f"/admin/upload/{kind}/preview", client_ip(request))
         return RedirectResponse("/dashboard")
     kind = kind.upper()
     if kind not in UPLOAD_KINDS:
@@ -267,6 +299,8 @@ def upload_confirm(request: Request, kind: str, token: str = Form(...), sheet: s
     """Step 2: import the chosen sheet (or all sheets) from the stashed file."""
     user = require_login(request)
     if not user or not auth.is_admin(user):
+        if user:
+            db.add_log(user["username"], user["authorization"], "ADMIN_ACCESS_DENIED", f"/admin/upload/{kind}/confirm", client_ip(request))
         return RedirectResponse("/dashboard")
     kind = kind.upper()
     loaded = tempstore.load(token)
@@ -279,14 +313,14 @@ def upload_confirm(request: Request, kind: str, token: str = Form(...), sheet: s
             if not users or not any(u["authorization"] == "ADMIN" for u in users):
                 raise ValueError("Include at least one ADMIN account in the Account sheet.")
             db.replace_users(users)
-            db.add_log(user["username"], user["authorization"], "AUTH_FILE_LOADED", f"{filename} / sheet: {sheet}")
+            db.add_log(user["username"], user["authorization"], "AUTH_FILE_LOADED", f"{filename} / sheet: {sheet}", client_ip(request))
             msg = f"Account+database+loaded+({len(users)}+users)"
         else:
             rows = excel_utils.rows_for_survey(content, sheet)
             if not rows:
                 raise ValueError("No records were imported. Make sure the sheet has a Frame ID / FRAME_ID column.")
             count = db.replace_records(kind, rows, filename)
-            db.add_log(user["username"], user["authorization"], f"{kind}_DATA_UPLOADED", f"{filename} / sheet: {sheet} / records: {count}")
+            db.add_log(user["username"], user["authorization"], f"{kind}_DATA_UPLOADED", f"{filename} / sheet: {sheet} / records: {count}", client_ip(request))
             msg = f"{kind}:+{count}+records+loaded"
         return RedirectResponse(f"/admin?message={msg}", status_code=303)
     except Exception as exc:  # noqa: BLE001
@@ -322,6 +356,7 @@ def survey_search(request: Request, survey_type: str, frame_id: str = "",
         records = [r for r in auth.visible_records(user, survey_type) if r["frame_id"].strip().lower() == frame_id.lower()]
         if not records:
             error = i18n.t("not_found_or_access", lang)
+            db.add_log(user["username"], user["authorization"], "RECORD_ACCESS_DENIED", f"{survey_type} / {frame_id}", client_ip(request))
         else:
             row = merged_row(records)
             periods = get_periods(row)
@@ -340,7 +375,7 @@ def survey_search(request: Request, survey_type: str, frame_id: str = "",
                     meta = record_meta(row, result["first"]["period"] if result and result.get("first") else periods[-1], lang)
             else:
                 raw_fields = {k: v for k, v in row.items() if not str(k).startswith("__")}
-            db.add_log(user["username"], user["authorization"], "SURVEY_FRAME_VIEW", f"{survey_type} / {frame_id}")
+            db.add_log(user["username"], user["authorization"], "SURVEY_FRAME_VIEW", f"{survey_type} / {frame_id}", client_ip(request))
 
     # Beginning-of-quarter vs end-of-quarter asset equation, per calculated
     # quarter (FISQ only) — بداية المدة و نهاية المدة.
@@ -387,6 +422,7 @@ def compare_view(request: Request, survey_type: str, frame_id: str = "", periods
         records = [r for r in auth.visible_records(user, survey_type) if r["frame_id"].strip().lower() == frame_id.lower()]
         if not records:
             error = i18n.t("not_found_or_access", lang)
+            db.add_log(user["username"], user["authorization"], "RECORD_ACCESS_DENIED", f"{survey_type} / {frame_id}", client_ip(request))
         else:
             row = merged_row(records)
             all_periods = get_periods(row)
@@ -397,7 +433,7 @@ def compare_view(request: Request, survey_type: str, frame_id: str = "", periods
             calcs = [calc_period_fn(p) for p in chosen]
             if calcs:
                 meta = record_meta(row, calcs[0]["period"], lang)
-            db.add_log(user["username"], user["authorization"], "PROJECT_COMPARISON_VIEW", f"{survey_type} / {frame_id}")
+            db.add_log(user["username"], user["authorization"], "PROJECT_COMPARISON_VIEW", f"{survey_type} / {frame_id}", client_ip(request))
 
     # Inventory continuity check (QES only): start should equal previous end.
     inventory_rows = []

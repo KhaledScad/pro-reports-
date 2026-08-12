@@ -163,6 +163,11 @@ def init_db() -> None:
                 details TEXT
             )
         """)
+        # Migration: add ip_address to any logs table created before this
+        # column existed (SQLite has no "ADD COLUMN IF NOT EXISTS").
+        existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(logs)").fetchall()}
+        if "ip_address" not in existing_cols:
+            conn.execute("ALTER TABLE logs ADD COLUMN ip_address TEXT")
         # Bootstrap admin so the app is reachable before any Account sheet
         # has been uploaded. No credential is hardcoded in source: set
         # BOOTSTRAP_ADMIN_USERNAME / BOOTSTRAP_ADMIN_PASSWORD to choose your
@@ -239,11 +244,11 @@ def replace_users(users: list[dict]) -> None:
 
 # ----------------------------------------------------------------- logs ---
 
-def add_log(username: str, role: str, action: str, details: str = "") -> None:
+def add_log(username: str, role: str, action: str, details: str = "", ip_address: str = "") -> None:
     with get_conn("main") as conn:
         conn.execute(
-            "INSERT INTO logs (time, username, role, action, details) VALUES (?, ?, ?, ?, ?)",
-            (datetime.utcnow().isoformat(timespec="seconds") + "Z", username, role, action, details),
+            "INSERT INTO logs (time, username, role, action, details, ip_address) VALUES (?, ?, ?, ?, ?, ?)",
+            (datetime.utcnow().isoformat(timespec="seconds") + "Z", username, role, action, details, ip_address),
         )
 
 
@@ -252,6 +257,13 @@ def list_logs(limit: int = 500) -> list[dict]:
         rows = conn.execute(
             "SELECT * FROM logs ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def all_logs() -> list[dict]:
+    """Every log entry ever recorded, oldest first — for the admin export."""
+    with get_conn("main") as conn:
+        rows = conn.execute("SELECT * FROM logs ORDER BY id ASC").fetchall()
         return [dict(r) for r in rows]
 
 
