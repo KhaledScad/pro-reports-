@@ -22,6 +22,9 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
+from .calculations_qes import DETAIL_GROUPS as QES_DETAIL_GROUPS
+from .calculations_fisq import COMPONENT_GROUPS as FISQ_COMPONENT_GROUPS, EQUITY_FORM_DETAIL as FISQ_EQUITY_FORM_DETAIL
+
 HEADER_FILL = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
 HEADER_FONT = Font(color="FFFFFF", bold=True)
 SECTION_FILL = PatternFill(start_color="FEE2E2", end_color="FEE2E2", fill_type="solid")
@@ -260,6 +263,39 @@ _ANNUAL_NOTE_AR = ("هذه الورقة ليست جزءاً من ملف رفع Q
                     "في صفحة المقارنة.")
 
 
+_DETAIL_DESC_EN = "Optional survey-form line item, shown for reference on the Calculation/Comparison pages — read-only, does not feed any formula above."
+_DETAIL_DESC_AR = "بند اختياري من استمارة المسح، يُعرض للمرجعية في صفحتي الاحتساب والمقارنة — للعرض فقط، ولا يدخل في أي معادلة أعلاه."
+
+_DETAIL_NOTE_EN = ("Every column below is OPTIONAL and read-only: if present, it appears in a collapsible "
+                    "\"Survey form details\" section on the Calculation/Comparison pages, purely for reference. "
+                    "None of these feed Total_Revenue / Total_Expenses / Current_Assets / etc. above — those keep "
+                    "being read exactly as before, regardless of whether these columns are supplied.")
+_DETAIL_NOTE_AR = ("كل عمود أدناه اختياري وللعرض فقط: إذا وُجد، يظهر في قسم قابل للطي بعنوان \"تفاصيل استمارة المسح\" "
+                    "في صفحتي الاحتساب والمقارنة، للمرجعية فقط. لا يدخل أي منها في احتساب Total_Revenue / "
+                    "Total_Expenses / Current_Assets / إلخ أعلاه — فتلك تبقى كما هي بغض النظر عن توفر هذه الأعمدة.")
+
+
+def _qes_detail_rows() -> list[tuple]:
+    rows = []
+    for title_en, title_ar, items in QES_DETAIL_GROUPS:
+        for label_en, label_ar, codes in items:
+            tech = " + ".join(codes) if len(codes) > 1 else codes[0]
+            rows.append((title_en, tech, label_en, label_ar, _DETAIL_DESC_EN, _DETAIL_DESC_AR, "Both"))
+    return rows
+
+
+def _fisq_detail_rows() -> list[tuple]:
+    rows = []
+    for g in FISQ_COMPONENT_GROUPS:
+        for label_en, label_ar, codes in g["components"]:
+            tech = " (or) ".join(codes) if len(codes) > 1 else codes[0]
+            rows.append((g["title_en"], tech, label_en, label_ar, _DETAIL_DESC_EN, _DETAIL_DESC_AR, "Both"))
+    for label_en, label_ar, codes in FISQ_EQUITY_FORM_DETAIL:
+        tech = " (or) ".join(codes) if len(codes) > 1 else codes[0]
+        rows.append(("Equity details (form Q7)", tech, label_en, label_ar, _DETAIL_DESC_EN, _DETAIL_DESC_AR, "Both"))
+    return rows
+
+
 def build_workbook(survey_type: str) -> bytes:
     """survey_type: 'QES' or 'FISQ'. Returns the .xlsx file bytes."""
     survey_type = survey_type.upper()
@@ -273,6 +309,10 @@ def build_workbook(survey_type: str) -> bytes:
     ws2 = wb.create_sheet("AES-FIS annual ISIC")
     annual_rows = [("Frame ID & annual ISIC4", *row) for row in ANNUAL_ISIC_ROWS]
     _write_sheet(ws2, annual_rows, _ANNUAL_NOTE_EN, _ANNUAL_NOTE_AR)
+
+    ws3 = wb.create_sheet("Survey form details (optional)")
+    detail_rows = _qes_detail_rows() if survey_type == "QES" else _fisq_detail_rows()
+    _write_sheet(ws3, detail_rows, _DETAIL_NOTE_EN, _DETAIL_NOTE_AR)
 
     buf = io.BytesIO()
     wb.save(buf)
