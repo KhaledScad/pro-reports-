@@ -13,7 +13,7 @@ touches FISQ formulas):
 """
 from __future__ import annotations
 
-from .calc_common import text_val, num_val, get_periods
+from .calc_common import text_val, num_val, get_periods, find_key
 
 # Beginning-of-quarter / end-of-quarter asset-equation columns (بداية المدة /
 # نهاية المدة): the same quarter's submission carries both an opening and a
@@ -161,6 +161,92 @@ def calc_fisq_period_movement(row: dict, period: str) -> dict:
         "liabilities_change": end["total_liabilities"] - begin["total_liabilities"],
         "equity_change": end["calculated_equity"] - begin["calculated_equity"],
     }
+
+
+# ---------------------------------------------------------------------
+# Detail line items from the real SCAD survey form's DB column codes
+# (form sections Q3-Q7). Display-only: current_assets / non_current_assets
+# / current_liabilities / non_current_liabilities / equity_in_form above
+# keep being read exactly as before — these components are not summed
+# into them. Component "C" for each Q3/Q4/Q5/Q6 group is referenced by the
+# source form's own SUM formula but its column name isn't documented
+# anywhere, so it's guessed by the same A/B naming pattern; it simply
+# won't show if that guess is wrong. Q5/Q6 components A/B also try an
+# alternate spelling without the underscore, since the source
+# documentation itself uses both ("CURR_LIAB_Q5_A" in the SUM formula,
+# "CURR_LIAB_Q5A" as the column's own row).
+# ---------------------------------------------------------------------
+COMPONENT_GROUPS = [
+    {
+        "title_en": "Current assets — components (form Q3)",
+        "title_ar": "الأصول المتداولة — المكونات (نموذج Q3)",
+        "components": [
+            ("Component A", "المكوّن أ", ["CURR_AS_Q3_A"]),
+            ("Component B", "المكوّن ب", ["CURR_AS_Q3_B"]),
+            ("Component C", "المكوّن ج", ["CURR_AS_Q3_C"]),
+        ],
+    },
+    {
+        "title_en": "Non-current assets — components (form Q4)",
+        "title_ar": "الأصول غير المتداولة — المكونات (نموذج Q4)",
+        "components": [
+            ("Component A", "المكوّن أ", ["NCURR_AS_Q4_A"]),
+            ("Component B", "المكوّن ب", ["NCURR_AS_Q4_B"]),
+            ("Component C", "المكوّن ج", ["NCURR_AS_Q4_C"]),
+        ],
+    },
+    {
+        "title_en": "Current liabilities — components (form Q5)",
+        "title_ar": "المطلوبات المتداولة — المكونات (نموذج Q5)",
+        "components": [
+            ("Component A", "المكوّن أ", ["CURR_LIAB_Q5_A", "CURR_LIAB_Q5A"]),
+            ("Component B", "المكوّن ب", ["CURR_LIAB_Q5_B", "CURR_LIAB_Q5B"]),
+            ("Component C", "المكوّن ج", ["CURR_LIAB_Q5_C", "CURR_LIAB_Q5C"]),
+        ],
+    },
+    {
+        "title_en": "Non-current (long-term) liabilities — components (form Q6)",
+        "title_ar": "المطلوبات غير المتداولة (طويلة الأجل) — المكونات (نموذج Q6)",
+        "components": [
+            ("Component A", "المكوّن أ", ["LNG_LIAB_Q6_A", "LNG_LIAB_Q6A"]),
+            ("Component B", "المكوّن ب", ["LNG_LIAB_Q6_B", "LNG_LIAB_Q6B"]),
+            ("Component C", "المكوّن ج", ["LNG_LIAB_Q6_C", "LNG_LIAB_Q6C"]),
+        ],
+    },
+]
+
+EQUITY_FORM_DETAIL = [
+    ("Equity 7.1", "حقوق الملكية 7.1", ["EQ_Q7_7_1"]),
+    ("Equity 7.2 — component D", "حقوق الملكية 7.2 — المكوّن D", ["EQ_Q7_D"]),
+    ("Equity 7.2 — component E", "حقوق الملكية 7.2 — المكوّن E", ["EQ_Q7_E"]),
+    ("Equity 7.3 (A)", "حقوق الملكية 7.3 (أ)", ["EQ_Q7_7_3_A_VAL"]),
+    ("Equity 7.3 (B)", "حقوق الملكية 7.3 (ب)", ["EQ_Q7_7_3_B_VAL"]),
+]
+
+
+def fisq_component_groups(row: dict, period: str, lang: str = "en") -> list[dict]:
+    """Granular survey-form component breakdown for display alongside the
+    main asset-equation calculation — read-only, not part of any formula
+    above."""
+    groups = []
+    for g in COMPONENT_GROUPS:
+        items = []
+        for label_en, label_ar, codes in g["components"]:
+            if find_key(row, period, codes) is None:
+                continue
+            items.append({"label": label_ar if lang == "ar" else label_en, "value": num_val(row, period, codes)})
+        if items:
+            groups.append({"title": g["title_ar"] if lang == "ar" else g["title_en"], "rows": items})
+
+    eq_items = []
+    for label_en, label_ar, codes in EQUITY_FORM_DETAIL:
+        if find_key(row, period, codes) is None:
+            continue
+        eq_items.append({"label": label_ar if lang == "ar" else label_en, "value": num_val(row, period, codes)})
+    if eq_items:
+        title = "تفاصيل حقوق الملكية (نموذج Q7)" if lang == "ar" else "Equity details (form Q7)"
+        groups.append({"title": title, "items": eq_items})
+    return groups
 
 
 def available_periods(row: dict) -> list[str]:

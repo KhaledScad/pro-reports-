@@ -194,6 +194,53 @@
     </table>
   </div>
 </div>
+
+<div class="card">
+  <h3>{{ t('movement_flag_title') }}</h3>
+  <p class="muted">{{ t('movement_flag_desc') }}</p>
+  {% if movement_flags %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>{{ t('period') }}</th><th>{{ t('metric') }}</th><th>{{ t('previous_value') }}</th><th>{{ t('period') }}</th><th>{{ t('change_pct') }}</th></tr></thead>
+      <tbody>
+        {% for mf in movement_flags %}
+        <tr>
+          <td>{{ mf.period|period_label(lang) }}</td>
+          <td>{{ mf.metric }}</td>
+          <td>{{ mf.prev_value|fmt }}</td>
+          <td>{{ mf.value|fmt }}</td>
+          <td class="negative">{{ mf.change_pct|fmt }}%</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted small">{{ t('movement_flag_none') }}</p>
+  {% endif %}
+</div>
+
+{% if detail_rows and detail_rows|selectattr('groups')|list %}
+<div class="card">
+  <h3>{{ t('detail_breakdown_title') }}</h3>
+  <p class="muted">{{ t('detail_breakdown_desc') }}</p>
+  {% for dr in detail_rows %}
+  {% if dr.groups %}
+  <details style="margin-top:10px;">
+    <summary style="cursor:pointer; font-weight:700;">{{ dr.period|period_label(lang) }}</summary>
+    {% for g in dr.groups %}
+    <div class="fields-grid" style="margin-top:10px;">
+      <div class="field" style="grid-column:1/-1; background:none; border:none; padding:0;"><strong>{{ g.title }}</strong></div>
+      {% for item in g.rows %}
+      <div class="field"><span>{{ item.label }}</span><strong>{{ item.value|fmt }}</strong></div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </details>
+  {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
 {% endif %}
 
 {% if chart %}

@@ -142,6 +142,22 @@
     </table>
   </div>
   {% endif %}
+
+  {% set groups = detail_map.get(c.period, []) %}
+  {% if groups %}
+  <details style="margin-top:14px;">
+    <summary style="cursor:pointer; font-weight:700;">{{ t('detail_breakdown_title') }}</summary>
+    <p class="muted small">{{ t('detail_breakdown_desc') }}</p>
+    {% for g in groups %}
+    <div class="fields-grid" style="margin-top:10px;">
+      <div class="field" style="grid-column:1/-1; background:none; border:none; padding:0;"><strong>{{ g.title }}</strong></div>
+      {% for item in g.rows %}
+      <div class="field"><span>{{ item.label }}</span><strong>{{ item.value|fmt }}</strong></div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </details>
+  {% endif %}
   {% endfor %}
 </div>
 {% endif %}

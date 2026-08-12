@@ -152,6 +152,28 @@
     </table>
   </div>
 </div>
+
+{% if detail_rows and detail_rows|selectattr('groups')|list %}
+<div class="card">
+  <h3>{{ t('detail_breakdown_title') }}</h3>
+  <p class="muted">{{ t('detail_breakdown_desc') }}</p>
+  {% for dr in detail_rows %}
+  {% if dr.groups %}
+  <details style="margin-top:10px;">
+    <summary style="cursor:pointer; font-weight:700;">{{ dr.period|period_label(lang) }}</summary>
+    {% for g in dr.groups %}
+    <div class="fields-grid" style="margin-top:10px;">
+      <div class="field" style="grid-column:1/-1; background:none; border:none; padding:0;"><strong>{{ g.title }}</strong></div>
+      {% for item in g.rows %}
+      <div class="field"><span>{{ item.label }}</span><strong>{{ item.value|fmt }}</strong></div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </details>
+  {% endif %}
+  {% endfor %}
+</div>
+{% endif %}
 {% endif %}
 
 {% if chart %}

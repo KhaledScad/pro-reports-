@@ -117,7 +117,24 @@
     {% if c.comment_revenue %}<div class="field"><span>Revenue comment</span><strong>{{ c.comment_revenue }}</strong></div>{% endif %}
     {% if c.comment_expense %}<div class="field"><span>Expense comment</span><strong>{{ c.comment_expense }}</strong></div>{% endif %}
     {% if c.comment_inventory %}<div class="field"><span>Inventory comment</span><strong>{{ c.comment_inventory }}</strong></div>{% endif %}
+    {% if c.license_number %}<div class="field"><span>{{ t('license_number') }}</span><strong>{{ c.license_number }}</strong></div>{% endif %}
   </div>
+
+  {% set groups = detail_map.get(c.period, []) %}
+  {% if groups %}
+  <details style="margin-top:14px;">
+    <summary style="cursor:pointer; font-weight:700;">{{ t('detail_breakdown_title') }}</summary>
+    <p class="muted small">{{ t('detail_breakdown_desc') }}</p>
+    {% for g in groups %}
+    <div class="fields-grid" style="margin-top:10px;">
+      <div class="field" style="grid-column:1/-1; background:none; border:none; padding:0;"><strong>{{ g.title }}</strong></div>
+      {% for item in g.rows %}
+      <div class="field"><span>{{ item.label }}</span><strong>{{ item.value|fmt }}</strong></div>
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </details>
+  {% endif %}
   {% endfor %}
 </div>
 {% endif %}

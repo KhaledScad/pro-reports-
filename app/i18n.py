@@ -87,6 +87,20 @@ TRANSLATIONS: dict[str, tuple[str, str]] = {
     "balanced": ("Balanced", "متوازن"),
     "needs_review": ("Needs review", "بحاجة للمراجعة"),
 
+    # survey-form detail breakdown (read-only, from the real DB column codes) + ±30% movement flag
+    "license_number": ("License Number", "رقم الرخصة"),
+    "detail_breakdown_title": ("Survey form details", "تفاصيل استمارة المسح"),
+    "detail_breakdown_desc": ("Line items from the survey form, shown for reference — these do not feed the calculation above.",
+                              "بنود من استمارة المسح، تُعرض للمرجعية — لا تدخل في الاحتساب أعلاه."),
+    "detail_breakdown_none": ("No survey-form detail columns were found in this file.", "لم يتم العثور على أعمدة تفاصيل استمارة المسح في هذا الملف."),
+    "movement_flag_title": ("Large quarter-over-quarter movement (>30%)", "تحرك كبير بين الأرباع (أكثر من 30%)"),
+    "movement_flag_desc": ("Flags any of the five tracked totals that moved more than 30% from the previous selected quarter.",
+                           "يُشير إلى أي من الإجماليات الخمسة المتابَعة التي تحركت أكثر من 30% عن الربع السابق المختار."),
+    "movement_flag_none": ("No movement over 30% between the selected quarters.", "لا يوجد تحرك يتجاوز 30% بين الأرباع المختارة."),
+    "metric": ("Metric", "المؤشر"),
+    "previous_value": ("Previous quarter", "الربع السابق"),
+    "change_pct": ("Change %", "نسبة التغيّر"),
+
     # annual ISIC cross-check — QES compares against AES, FISQ compares against FIS
     "year": ("Year", "السنة"),
     "annual_isic_title": ("ISIC cross-check — AES / FIS", "المطابقة السنوية لتصنيف ISIC4 — AES / FIS"),

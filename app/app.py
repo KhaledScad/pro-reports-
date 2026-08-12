@@ -15,8 +15,8 @@ from . import tempstore
 from . import i18n
 from . import variable_reference
 from .calc_common import fmt, pct, period_label, get_periods, record_meta, text_val, annual_isic_series
-from .calculations_qes import calc_qes
-from .calculations_fisq import calc_fisq, calc_fisq_period_movement
+from .calculations_qes import calc_qes, qes_detail_groups
+from .calculations_fisq import calc_fisq, calc_fisq_period_movement, fisq_component_groups
 
 BASE_DIR = Path(__file__).resolve().parent
 db.init_db()
@@ -82,6 +82,16 @@ CHART_DEFAULT_VARIABLES = {
     "QES": ["added_value", "total_revenue"],
     "FISQ": ["calculated_equity", "total_assets"],
 }
+
+# ±30% quarter-over-quarter movement flag (FISQ only), per the source
+# form's own validation rule: (calc dict key, label EN, label AR).
+FISQ_FLAG_METRICS = [
+    ("current_assets", "Current assets", "الأصول المتداولة"),
+    ("non_current_assets", "Non-current assets", "الأصول غير المتداولة"),
+    ("current_liabilities", "Current liabilities", "المطلوبات المتداولة"),
+    ("non_current_liabilities", "Non-current liabilities", "المطلوبات غير المتداولة"),
+    ("equity_in_form", "Equity", "حقوق الملكية"),
+]
 
 
 # --------------------------------------------------------------- helpers ---
@@ -338,10 +348,19 @@ def survey_search(request: Request, survey_type: str, frame_id: str = "",
     if survey_type == "FISQ" and result and result.get("calcs"):
         movement_map = {c["period"]: calc_fisq_period_movement(row, c["period"]) for c in result["calcs"]}
 
+    # Granular survey-form line items, shown alongside the main figures —
+    # read-only detail, not part of any calculation above.
+    detail_map = {}
+    if survey_type == "QES" and result and result.get("calcs"):
+        detail_map = {c["period"]: qes_detail_groups(row, c["period"], lang) for c in result["calcs"]}
+    elif survey_type == "FISQ" and result and result.get("calcs"):
+        detail_map = {c["period"]: fisq_component_groups(row, c["period"], lang) for c in result["calcs"]}
+
     template = f"survey_{survey_type.lower()}.html" if survey_type in CALCULATED_TYPES else "survey_generic.html"
     return render(request, template, survey_type=survey_type, frame_id=frame_id, mode=mode,
                   quarter=quarter, quarters=quarters, frame_options=frame_options, periods=periods,
-                  result=result, error=error, row=row, meta=meta, raw_fields=raw_fields, movement_map=movement_map)
+                  result=result, error=error, row=row, meta=meta, raw_fields=raw_fields, movement_map=movement_map,
+                  detail_map=detail_map)
 
 
 # ------------------------------------------------------------- comparison ---
@@ -412,6 +431,34 @@ def compare_view(request: Request, survey_type: str, frame_id: str = "", periods
     if survey_type == "FISQ" and calcs:
         movement_rows = [calc_fisq_period_movement(row, c["period"]) for c in calcs]
 
+    # ±30% quarter-over-quarter movement flag (FISQ only): flags any of the
+    # 5 tracked totals that moved more than 30% since the previous selected
+    # quarter, per the source form's validation rule.
+    movement_flags = []
+    if survey_type == "FISQ" and calcs:
+        for i, c in enumerate(calcs):
+            if i == 0:
+                continue
+            prev = calcs[i - 1]
+            for key, label_en, label_ar in FISQ_FLAG_METRICS:
+                prev_val, cur_val = prev.get(key) or 0, c.get(key) or 0
+                if not prev_val:
+                    continue
+                change_pct = (cur_val - prev_val) / abs(prev_val) * 100
+                if abs(change_pct) > 30:
+                    movement_flags.append({
+                        "period": c["period"], "metric": label_ar if lang == "ar" else label_en,
+                        "prev_value": prev_val, "value": cur_val, "change_pct": change_pct,
+                    })
+
+    # Granular survey-form line items, per compared quarter — read-only
+    # detail, not part of any calculation above.
+    detail_rows = []
+    if survey_type == "QES" and calcs:
+        detail_rows = [{"period": c["period"], "groups": qes_detail_groups(row, c["period"], lang)} for c in calcs]
+    elif survey_type == "FISQ" and calcs:
+        detail_rows = [{"period": c["period"], "groups": fisq_component_groups(row, c["period"], lang)} for c in calcs]
+
     # Annual ISIC cross-check against the same Frame ID's annual filing,
     # last 3 years — QES compares against AES, FISQ compares against FIS.
     aes_isic_rows = annual_isic_rows("AES", frame_id) if (survey_type == "QES" and frame_id) else None
@@ -431,7 +478,8 @@ def compare_view(request: Request, survey_type: str, frame_id: str = "", periods
     return render(request, template, survey_type=survey_type, frame_id=frame_id, frame_options=frame_options,
                   all_periods=all_periods, selected_periods=[c["period"] for c in calcs], calcs=calcs,
                   inventory_rows=inventory_rows, employee_rows=employee_rows, isic_rows=isic_rows,
-                  movement_rows=movement_rows, aes_isic_rows=aes_isic_rows, fis_isic_rows=fis_isic_rows,
+                  movement_rows=movement_rows, movement_flags=movement_flags, detail_rows=detail_rows,
+                  aes_isic_rows=aes_isic_rows, fis_isic_rows=fis_isic_rows,
                   error=error, row=row, meta=meta, chart=chart)
 
 
