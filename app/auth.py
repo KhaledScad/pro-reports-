@@ -1,5 +1,9 @@
 """
-Login, sessions, and role-based row-level access control.
+Login, sessions, and row-level access control.
+
+All users currently work as supervisors and can open every Frame ID
+(ALL_USERS_SEE_ALL_RECORDS). The role-based rules below are kept for when
+that switch is turned off again.
 
 Ported from the final effective JS logic (the v43 patch): a user's mode is
 derived from their Job text (ADMIN sees everything; "supervisor" job sees
@@ -12,24 +16,44 @@ are assigned to it in ANY quarter.
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from fastapi import Request
 
 from . import database as db
-from .calc_common import normalize_header, get_periods, clean, row_keys
+from .calc_common import normalize_header, get_periods, clean, row_keys, key_period
 
 AUDITOR_COLS = ["Auditor_User_Name", "Auditor_Username"]
 ENUMERATOR_COLS = ["_ENUMERATOR_User_name", "ENUMERATOR_User_name", "Enumerator_User_Name", "Enumerator_Username"]
 SUPERVISOR_COLS = ["Supervisor_USER_Name", "Supervisor_Username", "ENU_Supervisor_User_Name",
                     "AUD_Supervisor_USER_Name", "Enumerator_Supervisor_User_Name", "Auditor_Supervisor_User_Name"]
-AUDITOR_NAME_COLS = ["AUDITOR_NAME_EN", "AUDITOR_NAME_AR"]
-ENUMERATOR_NAME_COLS = ["ENUMERATOR_NAME_EN", "ENUMERATOR_NAME_AR"]
+AUDITOR_NAME_COLS = ["AUDITOR_NAME_EN", "AUDITOR_NAME_AR", "AUDITOR_NAME"]
+ENUMERATOR_NAME_COLS = ["ENUMERATOR_NAME_EN", "ENUMERATOR_NAME_AR", "ENUMERATOR_NAME"]
 # Generic fallback assignment columns, used for AES/FIS which don't have a
 # finalized per-role column scheme yet.
 GENERIC_ASSIGN_COLS = ["Assigned_To", "Assigned To", "Username", "Enumerator", "Employee_Username", "Owner"]
+ROLE_ASSIGN_COLS = AUDITOR_COLS + ENUMERATOR_COLS + SUPERVISOR_COLS + AUDITOR_NAME_COLS + ENUMERATOR_NAME_COLS
+
+# Every signed-in user can search and open every Frame ID, the way an admin
+# does. The dashboard's "assigned to you" list still shows only the user's own
+# assignments. Set to False to go back to role-based access (each user opens
+# only the records assigned to their username).
+ALL_USERS_SEE_ALL_RECORDS = True
 
 
 def norm_user(v) -> str:
     return re.sub(r"[\s_\-.]+", "", clean(v).lower())
+
+
+def account_name(username: str) -> str:
+    """Display name of the account with this username (matched loosely, like
+    record assignment), or the username itself when no account has it."""
+    key = norm_user(username)
+    if not key:
+        return ""
+    for u in db.list_users():
+        if norm_user(u.get("username")) == key:
+            return clean(u.get("name")) or clean(username)
+    return clean(username)
 
 
 def login(username: str, password: str) -> dict | None:
@@ -60,7 +84,7 @@ def role_mode(user: dict | None) -> str:
     if is_admin(user):
         return "admin"
     job = clean(user.get("job", "")).lower()
-    if re.search(r"supervisor|مشرف", job):
+    if str(user.get("authorization", "")).upper() == "SUPERVISOR" or re.search(r"supervisor|مشرف", job):
         return "supervisor"
     if re.search(r"auditor|مدقق", job):
         return "auditor"
@@ -74,47 +98,59 @@ def user_tokens(user: dict) -> list[str]:
 
 
 def _value_matches(value, tokens: list[str]) -> bool:
+    # Exact match only: substring matching leaks records between similar
+    # usernames (e.g. "aalshamsi" / "mzaalshamsi").
     nv = norm_user(value)
-    if not nv:
-        return False
-    for t in tokens:
-        if nv == t or (len(t) > 2 and t in nv) or (len(nv) > 2 and nv in t):
-            return True
-    return False
+    return bool(nv) and nv in tokens
 
 
-def _has_match(row: dict, columns: list[str], tokens: list[str]) -> bool:
+def _has_match(row: dict, columns: list[str], tokens: list[str], period: str | None = None) -> bool:
+    return any(_value_matches(row[k], tokens) for k in _matching_keys(tuple(row_keys(row)), tuple(columns), period))
+
+
+@lru_cache(maxsize=1024)
+def _matching_keys(keys: tuple[str, ...], columns: tuple[str, ...], period: str | None = None) -> tuple[str, ...]:
+    """The keys among `keys` that are one of `columns` (or end with one) —
+    cached per column set, since every record of an upload shares one. With
+    `period`, only that quarter's keys count, plus plain (no-quarter) ones."""
     wanted = {normalize_header(c) for c in columns}
-    for k in row_keys(row):
+    out = []
+    for k in keys:
+        if period and key_period(k) not in (period, None):
+            continue
         nk = normalize_header(k)
         if any(nk == w or nk.endswith(w) for w in wanted):
-            if _value_matches(row[k], tokens):
-                return True
-    return False
+            out.append(k)
+    return tuple(out)
 
 
-def can_access_record(user: dict | None, row: dict) -> bool:
+def can_access_record(user: dict | None, row: dict, period: str | None = None) -> bool:
     """Row-level visibility check, mirroring the original tool's suffix
-    matching (checks every quarter's assignment columns, not just one)."""
-    if is_admin(user):
-        return True
+    matching (checks every quarter's assignment columns, not just one).
+    With `period`, only that quarter's assignment counts, and an admin then
+    sees just the records someone is assigned to in it."""
     if not user:
         return False
+    if is_admin(user):
+        return not period or any(clean(row[k]) for k in _matching_keys(tuple(row_keys(row)), tuple(ROLE_ASSIGN_COLS), period))
+    if ALL_USERS_SEE_ALL_RECORDS and not period:
+        return True
     tokens = user_tokens(user)
     if not tokens:
         return False
     mode = role_mode(user)
     if mode == "auditor":
-        return _has_match(row, AUDITOR_COLS, tokens) or _has_match(row, AUDITOR_NAME_COLS, tokens)
+        return _has_match(row, AUDITOR_COLS, tokens, period) or _has_match(row, AUDITOR_NAME_COLS, tokens, period)
     if mode == "enumerator":
-        return _has_match(row, ENUMERATOR_COLS, tokens) or _has_match(row, ENUMERATOR_NAME_COLS, tokens)
+        return _has_match(row, ENUMERATOR_COLS, tokens, period) or _has_match(row, ENUMERATOR_NAME_COLS, tokens, period)
     if mode == "supervisor":
-        return _has_match(row, SUPERVISOR_COLS, tokens)
+        return _has_match(row, SUPERVISOR_COLS, tokens, period)
     # "direct" mode / generic USER accounts: allow if the username shows up
     # in any known assignment-style column at all.
-    all_cols = AUDITOR_COLS + ENUMERATOR_COLS + SUPERVISOR_COLS + AUDITOR_NAME_COLS + ENUMERATOR_NAME_COLS + GENERIC_ASSIGN_COLS
-    return _has_match(row, all_cols, tokens)
+    return _has_match(row, ROLE_ASSIGN_COLS + GENERIC_ASSIGN_COLS, tokens, period)
 
 
-def visible_records(user: dict | None, survey_type: str) -> list[dict]:
-    return [r for r in db.all_records(survey_type) if can_access_record(user, r["data"])]
+def visible_records(user: dict | None, survey_type: str, period: str | None = None) -> list[dict]:
+    """Records `user` can open; with `period`, only those assigned to them
+    in that quarter (see can_access_record)."""
+    return [r for r in db.all_records(survey_type) if can_access_record(user, r["data"], period)]

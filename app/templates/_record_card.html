@@ -1,0 +1,22 @@
+{# The Record card shared by the QES/FISQ calculation and comparison pages. #}
+<div class="card">
+  <h3>{{ t('record') }}</h3>
+  <div class="fields-grid">
+    <div class="field"><span>{{ t('frame_id') }}</span><strong>{{ meta.frame_id }}</strong></div>
+    <div class="field"><span>{{ t('establishment') }}</span><strong>{{ meta.establishment_name or '-' }}</strong></div>
+    <div class="field"><span>{{ t('license_number') }}</span><strong>{{ meta.license or '-' }}</strong></div>
+    {% if meta.license_frames|length > 1 %}
+    <div class="field" style="grid-column:1/-1;"><span>{{ t('license_frames') }} ({{ meta.license_frames|length }})</span>
+      {% for f in meta.license_frames %}<strong style="display:block;">{{ f.frame_id }} &mdash;
+        {% for p in f.periods %}{{ p|period_label(lang) }}{% if not loop.last %}, {% endif %}{% else %}<span class="sub" style="display:inline;">{{ t('license_frame_no_quarters') }}</span>{% endfor %}</strong>{% endfor %}
+      <span class="sub">{{ t('license_combined_hint') }}</span></div>
+    {% endif %}
+    {% if meta.isic4 %}<div class="field"><span>{{ t('isic4') }}</span><strong>{{ meta.isic4 }}</strong></div>{% endif %}
+    {% if meta.activity_type %}<div class="field"><span>{{ t('activity_type') }}</span><strong>{{ meta.activity_type }}</strong></div>{% endif %}
+    <div class="field"><span>{{ t('auditor') }}</span><strong>{{ meta.auditor_name or meta.auditor_username or '-' }}</strong></div>
+    <div class="field"><span>{{ t('enumerator') }}</span><strong>{{ meta.enumerator_name or meta.enumerator_username or '-' }}</strong></div>
+    <div class="field"><span>{{ t('supervisor_name') }}</span><strong>{{ meta.supervisor_name or meta.supervisor_username or '-' }}</strong></div>
+    {% if meta.stratum %}<div class="field"><span>{{ t('stratum') }}</span><strong>{{ meta.stratum }}</strong></div>{% endif %}
+    {% if meta.visit_status %}<div class="field"><span>{{ t('visit_status') }}</span><strong>{{ meta.visit_status }}</strong></div>{% endif %}
+  </div>
+</div>

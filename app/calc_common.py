@@ -8,6 +8,7 @@ back from an exact prefixed match to a plain match.
 from __future__ import annotations
 
 import re
+from functools import lru_cache
 from typing import Iterable
 
 _ARABIC_NORMALIZE = str.maketrans({
@@ -17,6 +18,8 @@ _ARABIC_NORMALIZE = str.maketrans({
 })
 
 _QUARTER_RE = re.compile(r"^(Q[1-4])_(\d{4})_", re.IGNORECASE)
+# A quarter label, possibly behind merged-file prefixes (Right_Q2_2026_..., Left_Right_...).
+_LABELLED_RE = re.compile(r"^(?:(?:left|right)_)*Q[1-4]_\d{4}_", re.IGNORECASE)
 _QUARTER_ONLY_RE = re.compile(r"Q\s*([1-4])|([1-4])", re.IGNORECASE)
 
 
@@ -27,9 +30,15 @@ def clean(v) -> str:
 
 
 def normalize_header(v) -> str:
-    s = clean(v).translate(_ARABIC_NORMALIZE).lower()
-    s = re.sub(r"[\s_\-.\\/()]+", "", s)
-    return s
+    return _normalize(clean(v))
+
+
+@lru_cache(maxsize=8192)
+def _normalize(s: str) -> str:
+    # Cached: the same few hundred column headers are normalized for every
+    # record on every page load.
+    s = s.translate(_ARABIC_NORMALIZE).lower()
+    return re.sub(r"[\s_\-.\\/()]+", "", s)
 
 
 def to_num(v) -> float:
@@ -67,16 +76,22 @@ def row_keys(row: dict) -> list[str]:
 
 def _key_matches_suffix(key: str, suffix: str) -> bool:
     nk, ns = normalize_header(key), normalize_header(suffix)
-    return nk == ns or nk.endswith(ns)
+    # "Current_Assets" must never pick up "Non-Current_Assets" (or liabilities alike).
+    return nk == ns or (nk.endswith(ns) and not nk[:-len(ns)].endswith("non"))
 
 
 def find_key(row: dict, period: str | None, suffixes: Iterable[str]) -> str | None:
     """Locate the column for `suffix` in `row`, preferring an exact
     `{period}_{suffix}` match, then a period-prefixed fuzzy match, then a
     bare (no-period) match."""
-    suffixes = list(suffixes) if not isinstance(suffixes, str) else [suffixes]
-    keys = row_keys(row)
+    suffixes = (suffixes,) if isinstance(suffixes, str) else tuple(suffixes)
+    # Every record from one upload has the same columns, so the lookup is
+    # cached per column set rather than repeated for each record.
+    return _find_key(tuple(row_keys(row)), period, suffixes)
 
+
+@lru_cache(maxsize=8192)
+def _find_key(keys: tuple[str, ...], period: str | None, suffixes: tuple[str, ...]) -> str | None:
     if period:
         for suffix in suffixes:
             target = normalize_header(f"{period}_{suffix}")
@@ -89,10 +104,15 @@ def find_key(row: dict, period: str | None, suffixes: Iterable[str]) -> str | No
                 if normalize_header(k).startswith(prefix) and _key_matches_suffix(k, suffix):
                     return k
 
+    # Bare match: a plain (no-quarter) column serves any quarter that lacks its own,
+    # but another quarter's column never stands in for the one asked for. An exact
+    # name wins over a longer one that merely ends with it.
+    plain = [k for k in keys if not (period and _LABELLED_RE.match(clean(k)))]
     for suffix in suffixes:
-        for k in keys:
-            if _key_matches_suffix(k, suffix):
-                return k
+        hits = [k for k in plain if _key_matches_suffix(k, suffix)]
+        if hits:
+            ns = normalize_header(suffix)
+            return next((k for k in hits if normalize_header(k) == ns), hits[0])
     return None
 
 
@@ -105,20 +125,29 @@ def num_val(row: dict, period: str | None, suffixes) -> float:
     return to_num(text_val(row, period, suffixes))
 
 
+def key_period(key) -> str | None:
+    """The Q#_YYYY period a wide column belongs to ('Q1_2026_Total_Revenue'
+    -> 'Q1_2026'), or None for a plain column."""
+    m = _QUARTER_RE.match(clean(key))
+    return f"{m.group(1).upper()}_{m.group(2)}" if m else None
+
+
 def get_periods(row: dict) -> list[str]:
     """Extract every Q#_YYYY wide-column period present in this row's
     headers, e.g. {'Q1_2026_Total_Revenue': ...} -> 'Q1_2026'."""
-    found = set()
-    for k in row_keys(row):
-        m = _QUARTER_RE.match(clean(k))
-        if m:
-            found.add(f"{m.group(1).upper()}_{m.group(2)}")
+    # Cached per column set, like find_key: called for every record on every page load.
+    return list(_periods(tuple(row_keys(row))))
+
+
+@lru_cache(maxsize=1024)
+def _periods(keys: tuple[str, ...]) -> tuple[str, ...]:
+    found = {p for k in keys if (p := key_period(k))}
 
     def sort_key(p: str):
         m = re.match(r"Q([1-4])_(\d{4})", p)
         return (int(m.group(2)), int(m.group(1))) if m else (0, 0)
 
-    return sorted(found, key=sort_key)
+    return tuple(sorted(found, key=sort_key))
 
 
 _YEAR_ISIC_RE = re.compile(r"^(\d{4})_ISIC4$", re.IGNORECASE)
@@ -156,23 +185,41 @@ def frame_id_of(row: dict) -> str:
     return ""
 
 
-def record_meta(row: dict, period: str | None, lang: str = "en") -> dict:
-    """Common identifying fields shown above any QES/FISQ calculation."""
-    first, second = (["ISIC4_DESC_AR"], ["ISIC4_DESC_EN"]) if lang == "ar" else (["ISIC4_DESC_EN"], ["ISIC4_DESC_AR"])
-    act_first, act_second = (["ACTIVITY_TYPE_AR"], ["ACTIVITY_TYPE_EN"]) if lang == "ar" else (["ACTIVITY_TYPE_EN"], ["ACTIVITY_TYPE_AR"])
-    aud_first, aud_second = (["AUDITOR_NAME_AR"], ["AUDITOR_NAME_EN"]) if lang == "ar" else (["AUDITOR_NAME_EN"], ["AUDITOR_NAME_AR"])
-    enu_first, enu_second = (["ENUMERATOR_NAME_AR"], ["ENUMERATOR_NAME_EN"]) if lang == "ar" else (["ENUMERATOR_NAME_EN"], ["ENUMERATOR_NAME_AR"])
+def latest_text(row: dict, suffixes) -> str:
+    """First non-empty value for `suffixes`, newest quarter first, then the
+    plain (no quarter prefix) column."""
+    for p in [*reversed(get_periods(row)), None]:
+        value = text_val(row, p, suffixes)
+        if value:
+            return value
+    return ""
+
+
+def record_meta(row: dict, lang: str = "en") -> dict:
+    """Common identifying fields shown above any QES/FISQ calculation, each
+    from the newest quarter that has it — older quarters' blocks in a merged
+    file often leave names and assignments empty."""
+    def pick(first: list[str], second: list[str] = ()) -> str:
+        return latest_text(row, first) or (latest_text(row, second) if second else "")
+
+    ar = lang == "ar"
+    # FISQ carries plain AUDITOR_NAME / ENUMERATOR_NAME (no _EN/_AR pair), tried last.
     return {
         "frame_id": frame_id_of(row),
-        "establishment_name": text_val(row, period, ["ESTABLISHMENT_NAME"]),
-        "isic4": text_val(row, period, ["ISIC4"]),
-        "isic4_desc": text_val(row, period, first) or text_val(row, period, second),
-        "activity_type": text_val(row, period, act_first) or text_val(row, period, act_second),
-        "auditor_name": text_val(row, period, aud_first) or text_val(row, period, aud_second),
-        "enumerator_name": text_val(row, period, enu_first) or text_val(row, period, enu_second),
-        "auditor_username": text_val(row, period, ["Auditor_User_Name", "Auditor_Username"]),
-        "enumerator_username": text_val(row, period, ["_ENUMERATOR_User_name", "ENUMERATOR_User_name", "Enumerator_User_Name"]),
-        "supervisor_username": text_val(row, period, ["Supervisor_USER_Name", "Supervisor_Username"]),
-        "year": text_val(row, period, ["YEAR"]),
-        "employee_number": text_val(row, period, ["Employee_Number", "TOTAL_EMPLOYEES"]),
+        "establishment_name": pick(["ESTABLISHMENT_NAME"]),
+        "isic4": pick(["ISIC4"]),
+        "isic4_desc": pick(["ISIC4_DESC_AR"], ["ISIC4_DESC_EN"]) if ar else pick(["ISIC4_DESC_EN"], ["ISIC4_DESC_AR"]),
+        "activity_type": pick(["ACTIVITY_TYPE_AR"], ["ACTIVITY_TYPE_EN"]) if ar else pick(["ACTIVITY_TYPE_EN"], ["ACTIVITY_TYPE_AR"]),
+        "auditor_name": pick(["AUDITOR_NAME_AR"], ["AUDITOR_NAME_EN", "AUDITOR_NAME"]) if ar
+                        else pick(["AUDITOR_NAME_EN"], ["AUDITOR_NAME_AR", "AUDITOR_NAME"]),
+        "enumerator_name": pick(["ENUMERATOR_NAME_AR"], ["ENUMERATOR_NAME_EN", "ENUMERATOR_NAME"]) if ar
+                           else pick(["ENUMERATOR_NAME_EN"], ["ENUMERATOR_NAME_AR", "ENUMERATOR_NAME"]),
+        "auditor_username": pick(["Auditor_User_Name", "Auditor_Username"]),
+        "enumerator_username": pick(["_ENUMERATOR_User_name", "ENUMERATOR_User_name", "Enumerator_User_Name"]),
+        "supervisor_username": pick(["AUD_Supervisor_USER_Name", "Supervisor_USER_Name",
+                                     "Supervisor_Username", "ENU_Supervisor_User_Name"]),
+        "stratum": pick(["STRATUM"]),
+        "visit_status": pick(["VISIT_STATUS_AR"], ["VISIT_STATUS_EN"]) if ar else pick(["VISIT_STATUS_EN"], ["VISIT_STATUS_AR"]),
+        "year": pick(["YEAR"]),
+        "employee_number": pick(["Employee_Number", "TOTAL_EMPLOYEES"]),
     }

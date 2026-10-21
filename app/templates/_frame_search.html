@@ -1,0 +1,31 @@
+{# Frame ID / License Number search, shared by the QES/FISQ calculation and comparison pages.
+   Both are searchable dropdowns: click to open the list, or type part of a number or
+   establishment name to filter it. They list every record this user can open (all of them
+   while auth.ALL_USERS_SEE_ALL_RECORDS is on).
+   Picking one clears the other; the server opens the Frame ID if both are sent. #}
+{% set license_options = license_choices(frame_options) %}
+<div class="frame-search">
+  <div>
+    <label for="frame_id">{{ t('frame_id') }}</label>
+    <input type="search" id="frame_id" name="frame_id" list="frame_id_options" class="combo"
+           value="{{ frame_id }}" autocomplete="off" placeholder="{{ t('frame_id_placeholder') }}"
+           onclick="try { this.showPicker(); } catch (e) {}"
+           oninput="if (this.value) document.getElementById('license').value = '';">
+    <datalist id="frame_id_options">
+      {% for f in frame_options %}<option value="{{ f.frame_id }}">{{ f.name }}{% if f.license %} &middot; {{ f.license }}{% endif %}</option>{% endfor %}
+    </datalist>
+  </div>
+  <div class="frame-search-or">{{ t('or') }}</div>
+  <div>
+    <label for="license">{{ t('license_number') }}</label>
+    <input type="search" id="license" name="license" list="license_options" class="combo"
+           value="{{ license }}" autocomplete="off" {{ "disabled" if not license_options }}
+           placeholder="{{ t('license_placeholder') if license_options else t('no_license_data') }}"
+           onclick="try { this.showPicker(); } catch (e) {}"
+           oninput="if (this.value) document.getElementById('frame_id').value = '';">
+    <datalist id="license_options">
+      {% for l in license_options %}<option value="{{ l.license }}">{% if l.frames|length == 1 %}{{ l.frames[0].frame_id }}{% if l.frames[0].name %} &middot; {{ l.frames[0].name }}{% endif %}{% else %}{{ l.frames|length }} {{ t('frame_ids') }}{% endif %}</option>{% endfor %}
+    </datalist>
+  </div>
+</div>
+<p class="muted small">{{ t('search_by_hint') }} ({{ frame_options|length }} {{ t('frame_ids_available') }})</p>

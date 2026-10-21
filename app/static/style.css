@@ -72,7 +72,7 @@ p.muted, .muted { color: var(--muted); }
 .count { font-size: 26px; font-weight: 800; margin: 6px 0; }
 
 label { display: block; font-weight: 700; margin: 12px 0 6px; font-size: 14px; }
-input[type="text"], input[type="password"], input:not([type]), select, input[type="file"] {
+input[type="text"], input[type="password"], input[type="search"], input:not([type]), select, input[type="file"] {
   width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; font-size: 14px;
 }
 input:focus, select:focus { outline: 3px solid rgba(67,124,220,.18); border-color: var(--brand); }
@@ -103,6 +103,20 @@ button, .btn {
 .pill-supervisor { background: #ede9fe; color: #5b21b6; }
 
 .search-form { display: flex; flex-direction: column; }
+/* Frame ID / License Number searchable dropdowns (input + datalist). */
+.frame-search { display: grid; grid-template-columns: 1fr auto 1fr; gap: 0 14px; align-items: end; }
+.frame-search-or { padding-bottom: 11px; color: var(--muted); font-weight: 700; font-size: 13px; }
+@media (max-width: 700px) {
+  .frame-search { grid-template-columns: 1fr; }
+  .frame-search-or { padding: 10px 0 0; }
+}
+input.combo {
+  padding-right: 34px; background: #fff no-repeat right 12px center / 12px 8px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%236b7280' stroke-width='2'/%3E%3C/svg%3E");
+}
+input.combo::-webkit-calendar-picker-indicator { display: none !important; }
+input.combo:disabled { background-color: #f3f4f6; color: var(--muted); cursor: not-allowed; }
+body.rtl input.combo { padding-right: 12px; padding-left: 34px; background-position: left 12px center; }
 .period-box { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 14px 0; padding: 12px; border: 1px dashed var(--border); border-radius: 12px; }
 @media (max-width: 700px) { .period-box { grid-template-columns: 1fr; } }
 .period-col strong { display: block; margin-bottom: 6px; }
@@ -127,6 +141,26 @@ button, .btn {
 .trend-same { background: #fffbeb; color: #92400e; font-weight: 700; }
 
 .upload-card form { display: flex; flex-direction: column; gap: 8px; }
+
+.table-wrap.user-table-wrap {
+  height: calc(100vh - 220px);
+  min-height: 420px;
+  max-height: none;
+  resize: vertical;
+  overflow: auto;
+}
+.user-form-anchor { display: none; }
+.user-table thead tr:first-child th { top: 0; z-index: 3; }
+.user-table thead tr.filter-row th { top: 37px; z-index: 3; background: #fff; padding-top: 6px; padding-bottom: 6px; }
+.user-table .filter-row input,
+.user-table .filter-row select { padding: 6px 8px; font-size: 12px; font-weight: 500; }
+.user-table tbody tr.editor-row td { position: sticky; top: 82px; z-index: 2; background: #f6f9fd; vertical-align: middle; }
+.user-table tbody tr.row-dirty td { background: #fffbeb; }
+.user-table tbody td input,
+.user-table tbody td select { padding: 6px 8px; font-size: 13px; min-width: 130px; }
+.user-table td input[name="name"],
+.user-table td input[name="job"] { min-width: 200px; }
+.user-extend-hint { margin: 8px 0 0; }
 
 /* ---- RTL ---- */
 body.rtl { direction: rtl; text-align: right; }

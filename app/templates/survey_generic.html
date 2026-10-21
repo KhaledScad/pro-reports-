@@ -8,7 +8,7 @@
   <form method="get" action="/survey/{{ survey_type|lower }}" class="search-form">
     <label for="frame_id">{{ t('frame_id') }}</label>
     <input id="frame_id" name="frame_id" list="frameOptions" value="{{ frame_id }}" placeholder="{{ t('frame_id') }}" required />
-    <datalist id="frameOptions">{% for f in frame_options %}<option value="{{ f }}"></option>{% endfor %}</datalist>
+    <datalist id="frameOptions">{% for f in frame_options %}<option value="{{ f.frame_id }}">{{ f.name }}</option>{% endfor %}</datalist>
     <button type="submit" class="btn">{{ t('search_calc') }}</button>
   </form>
 </div>

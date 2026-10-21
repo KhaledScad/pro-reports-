@@ -11,16 +11,12 @@
 
 <div class="card">
   <form method="get" action="/compare/fisq" class="search-form">
-    <label for="frame_id">{{ t('frame_id') }}</label>
-    <select id="frame_id" name="frame_id" required>
-      <option value="" disabled {{ "selected" if not frame_id }}>{{ t('frame_id') }}</option>
-      {% for f in frame_options %}<option value="{{ f }}" {{ "selected" if f == frame_id }}>{{ f }}</option>{% endfor %}
-    </select>
+    {% include "_frame_search.html" %}
     {% if all_periods %}
     <div class="period-box">
       <div class="period-col">
         <strong>{{ t('periods_to_compare') }}</strong>
-        {% for p in all_periods %}
+        {% for p in all_periods|reverse %}
         <label class="radio-row"><input type="checkbox" name="periods" value="{{ p }}" {{ "checked" if p in selected_periods }}> {{ p|period_label(lang) }}</label>
         {% endfor %}
       </div>
@@ -33,16 +29,7 @@
 {% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
 
 {% if meta %}
-<div class="card">
-  <h3>{{ t('record') }}</h3>
-  <div class="fields-grid">
-    <div class="field"><span>{{ t('frame_id') }}</span><strong>{{ meta.frame_id }}</strong></div>
-    <div class="field"><span>{{ t('establishment') }}</span><strong>{{ meta.establishment_name or '-' }}</strong></div>
-    <div class="field"><span>{{ t('auditor') }}</span><strong>{{ meta.auditor_name or meta.auditor_username or '-' }}</strong></div>
-    <div class="field"><span>{{ t('enumerator') }}</span><strong>{{ meta.enumerator_name or meta.enumerator_username or '-' }}</strong></div>
-    <div class="field"><span>{{ t('supervisor_username') }}</span><strong>{{ meta.supervisor_username or '-' }}</strong></div>
-  </div>
-</div>
+{% include "_record_card.html" %}
 {% endif %}
 
 {% if calcs %}
@@ -50,12 +37,14 @@
   <h3>{{ t('asset_equation_comparison') }}</h3>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>{{ t('period') }}</th><th>{{ t('current_assets') }}</th><th>{{ t('non_current_assets') }}</th><th>{{ t('total_assets') }}</th><th>{{ t('current_liabilities') }}</th><th>{{ t('non_current_liabilities') }}</th><th>{{ t('total_liabilities') }}</th><th>{{ t('calculated_equity') }}</th><th>{{ t('equity_in_form') }}</th><th>{{ t('difference') }}</th></tr></thead>
+      <thead><tr><th>{{ t('period') }}</th>{% if period_sources %}<th>{{ t('frame_id') }}</th>{% endif %}<th>{{ t('current_assets') }}</th><th>{{ t('non_current_assets') }}</th><th>{{ t('total_assets') }}</th><th>{{ t('current_liabilities') }}</th><th>{{ t('non_current_liabilities') }}</th><th>{{ t('total_liabilities') }}</th><th>{{ t('calculated_equity') }}</th><th>{{ t('equity_in_form') }}</th><th>{{ t('difference') }}</th></tr></thead>
       <tbody>
-        {% for c in calcs %}
-        {% set p = calcs[loop.index0 - 1] if not loop.first else None %}
+        {% for c in calcs|reverse %}
+        {% set i = calcs|length - loop.index %}
+        {% set p = calcs[i - 1] if i > 0 else None %}
         <tr>
           <td>{{ c.period|period_label(lang) }}</td>
+          {% if period_sources %}{% set src = period_sources[c.period] %}<td>{{ src.frame_id }}{% if src.also %}<div class="muted small">{{ t('also_reported_under') }} {{ src.also|join(', ') }}</div>{% endif %}</td>{% endif %}
           <td class="{{ trend_cls(p.current_assets if p else None, c.current_assets) }}">{{ c.current_assets|fmt }}</td>
           <td class="{{ trend_cls(p.non_current_assets if p else None, c.non_current_assets) }}">{{ c.non_current_assets|fmt }}</td>
           <td class="{{ trend_cls(p.total_assets if p else None, c.total_assets) }}">{{ c.total_assets|fmt }}</td>
@@ -72,13 +61,14 @@
   </div>
 </div>
 
+{% if movement_rows %}
 <div class="card">
   <h3>{{ t('period_movement') }}</h3>
   <div class="table-wrap">
     <table>
       <thead><tr><th>{{ t('period') }}</th><th>{{ t('current_assets') }}</th><th>{{ t('non_current_assets') }}</th><th>{{ t('total_assets') }}</th><th>{{ t('current_liabilities') }}</th><th>{{ t('non_current_liabilities') }}</th><th>{{ t('total_liabilities') }}</th><th>{{ t('calculated_equity') }}</th><th>{{ t('equity_in_form') }}</th><th>{{ t('difference') }}</th></tr></thead>
       <tbody>
-        {% for mv in movement_rows %}
+        {% for mv in movement_rows|reverse %}
         <tr>
           <td>{{ mv.period|period_label(lang) }} &mdash; {{ t('beginning_of_period') }}</td>
           <td>{{ mv.begin.current_assets|fmt }}</td>
@@ -108,6 +98,7 @@
     </table>
   </div>
 </div>
+{% endif %}
 
 <div class="card">
   <h3>{{ t('isic_status_fisq') }}</h3>
@@ -115,7 +106,7 @@
     <table>
       <thead><tr><th>{{ t('period') }}</th><th>{{ t('isic4') }}</th><th>{{ t('status') }}</th></tr></thead>
       <tbody>
-        {% for ir in isic_rows %}
+        {% for ir in isic_rows|reverse %}
         <tr>
           <td>{{ ir.period|period_label(lang) }}</td>
           <td>{{ ir.isic4 or '-' }}</td>
@@ -159,12 +150,11 @@
   <h3>{{ t('equity_details') }}</h3>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>{{ t('period') }}</th><th>7.1</th><th>7.2</th><th>7.3</th><th>7.4</th><th>7.5</th><th>7.6</th><th>Total</th><th>7.2+7.3</th><th>{{ t('equity_in_form') }}</th><th>{{ t('difference') }}</th><th>{{ t('status') }}</th></tr></thead>
+      <thead><tr><th>{{ t('period') }}</th><th>{{ t('paid_up_capital') }}</th><th>{{ t('other_equity') }}</th><th>7.2 + 7.3</th><th>{{ t('equity_in_form') }}</th><th>{{ t('difference') }}</th><th>{{ t('status') }}</th></tr></thead>
       <tbody>
-        {% for c in calcs %}
+        {% for c in calcs|reverse %}
         <tr>
-          <td>{{ c.period|period_label(lang) }}</td><td>{{ c.equity_7_1|fmt }}</td><td>{{ c.equity_7_2|fmt }}</td><td>{{ c.equity_7_3|fmt }}</td>
-          <td>{{ c.equity_7_4|fmt }}</td><td>{{ c.equity_7_5|fmt }}</td><td>{{ c.equity_7_6|fmt }}</td><td>{{ c.equity_details_total|fmt }}</td>
+          <td>{{ c.period|period_label(lang) }}</td><td>{{ c.equity_7_2|fmt }}</td><td>{{ c.equity_7_3|fmt }}</td>
           <td>{{ c.equity_723_total|fmt }}</td><td>{{ c.equity_in_form|fmt }}</td>
           <td class="{{ 'positive' if (c.equity_723_difference|abs) < 0.01 else 'negative' }}">{{ c.equity_723_difference|fmt }}</td>
           <td class="{{ 'positive' if c.equity_723_status == 'Correct' else 'negative' }}">{{ c.equity_723_status }}</td>
@@ -181,7 +171,7 @@
     <table>
       <thead><tr><th>{{ t('period') }}</th><th>Assets: file / calculated</th><th>Liabilities: file / calculated</th><th>{{ t('difference') }}</th><th>{{ t('status') }}</th></tr></thead>
       <tbody>
-        {% for c in calcs %}
+        {% for c in calcs|reverse %}
         <tr>
           <td>{{ c.period|period_label(lang) }}</td>
           <td>{{ (c.total_assets_file|fmt) ~ ' / ' ~ (c.total_assets|fmt) if c.total_assets_file else '-' }}</td>
@@ -203,7 +193,7 @@
     <table>
       <thead><tr><th>{{ t('period') }}</th><th>{{ t('metric') }}</th><th>{{ t('previous_value') }}</th><th>{{ t('period') }}</th><th>{{ t('change_pct') }}</th></tr></thead>
       <tbody>
-        {% for mf in movement_flags %}
+        {% for mf in movement_flags|reverse %}
         <tr>
           <td>{{ mf.period|period_label(lang) }}</td>
           <td>{{ mf.metric }}</td>
@@ -224,7 +214,7 @@
 <div class="card">
   <h3>{{ t('detail_breakdown_title') }}</h3>
   <p class="muted">{{ t('detail_breakdown_desc') }}</p>
-  {% for dr in detail_rows %}
+  {% for dr in detail_rows|reverse %}
   {% if dr.groups %}
   <details style="margin-top:10px;">
     <summary style="cursor:pointer; font-weight:700;">{{ dr.period|period_label(lang) }}</summary>
@@ -232,7 +222,7 @@
     <div class="fields-grid" style="margin-top:10px;">
       <div class="field" style="grid-column:1/-1; background:none; border:none; padding:0;"><strong>{{ g.title }}</strong></div>
       {% for item in g.rows %}
-      <div class="field"><span>{{ item.label }}</span><strong>{{ item.value|fmt }}</strong></div>
+      <div class="field"><span>{{ item.label }}</span><strong>{{ item.value|fmt }}</strong>{% if item.prev is not none %}<span class="sub">{{ t('previous_period') }}: {{ item.prev|fmt }}</span>{% endif %}</div>
       {% endfor %}
     </div>
     {% endfor %}

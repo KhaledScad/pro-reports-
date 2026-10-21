@@ -6,9 +6,9 @@ rules: industrial establishments, commercial establishments, and "the rest
 of the economic surveys" — services / construction / real estate / transport
 & storage each have their own Profit/Loss rule):
 
-  Industry:                 GO = Gross margin = Revenue + InvEnd - InvBegin - RawMaterial
-                             IC = IC (file) or Ops + Expenses + RawMaterial
-                             Profit = Gross margin - (Expenses - RawMaterial)
+  Industry:                 GO = Revenue + InvEnd - InvBegin
+                             IC = IC (file) or Ops + BankCharges + RawMaterial
+                             Profit = GO - Expenses
   Trade:                     GO = Gross margin = Revenue + InvEnd - InvBegin - RawMaterial
                              IC = IC (file) or Ops + Expenses
                              Profit = Gross margin - (Expenses - RawMaterial)
@@ -17,14 +17,16 @@ of the economic surveys" — services / construction / real estate / transport
   estate, ...):               IC = IC (file) or Ops + Expenses
                              Profit = Revenue - Expenses
 
-Industry and Trade both compute a Cost-of-Goods-based gross margin first
-(inventory movement minus the raw material used / net purchases for resale —
-the same "RawMaterial" column doubles as either concept depending on the
-establishment's activity). Because the reported Total Expenses figure already
-includes that raw-material/purchases line item, it is backed out again before
-being subtracted from the gross margin, so it is not counted twice. Every
+Trade computes a gross margin first: inventory movement minus net purchases
+for resale (the "RawMaterial" column). Because the reported Total Expenses
+figure already includes those purchases, they are backed out again before
+being subtracted from the margin, so they are not counted twice. Industry's
+raw material is used up in production, so it counts in intermediate
+consumption (with operations cost and bank charges) instead of coming off
+gross output; its Profit = GO - Expenses is the same figure as before. Every
 other activity (no cost-of-goods concept in the survey) uses the simple
-Revenue - Expenses rule.
+Revenue - Expenses rule. A non-zero IC column in the file is used as-is (in
+the 20-10 data it always equals Ops + BankCharges + RawMaterial for Industry).
 
   Added Value      = GO - IC
   Average Salary   = Employee_Salary / Employees / 3   (quarterly salary -> monthly)
@@ -34,13 +36,14 @@ from __future__ import annotations
 import re
 from .calc_common import text_val, num_val, get_periods, period_label, fmt, find_key
 
-LICENSE_NUMBER = ["LIC_NO"]
+LICENSE_NUMBER = ["Licence_Number", "License_Number", "LIC_NO"]
 
 REVENUE = ["Total_Revenue"]
 EXPENSES = ["Total_Expenses"]
 OPS_COST = ["Operations_Cost"]
 EMP_SALARY = ["Employee_Salary"]
 RAW_MATERIAL = ["RAW_Material"]
+BANK_CHARGES = ["Banking_Charges", "Bank_Charges", "T4_3_5_BANK_CHARGE"]
 INV_BEGIN = ["Total_Finished_Goods_Begining_Of_period", "Finished_Goods_Begining_Of_period",
              "Finished_Goods_Beginning_Of_period", "Inventory_Start"]
 INV_END = ["Total_Finished_Goods_End_of_period", "Finished_Goods_End_of_period", "Inventory_End"]
@@ -49,6 +52,12 @@ EMPLOYEES = ["TOTAL_EMPLOYEES"]
 COMMENT_REV = ["Comment_Revenue"]
 COMMENT_EXP = ["Comment_Expense"]
 COMMENT_INV = ["Comment_Inventory"]
+
+# A quarter's reported figures (not its names, codes or comments) — how the
+# search tells which Frame ID reported a quarter when one licence number has
+# several Frame IDs.
+FIGURES = [REVENUE, EXPENSES, OPS_COST, EMP_SALARY, RAW_MATERIAL, BANK_CHARGES,
+           INV_BEGIN, INV_END, IC_FILE, EMPLOYEES]
 
 ACTIVITY_EN = ["ACTIVITY_TYPE_EN"]
 ACTIVITY_AR = ["ACTIVITY_TYPE_AR"]
@@ -94,6 +103,7 @@ def calc_qes_period(row: dict, period: str, lang: str = "en") -> dict:
     ops = num_val(row, period, OPS_COST)
     sal = num_val(row, period, EMP_SALARY)
     raw = num_val(row, period, RAW_MATERIAL)
+    bank = num_val(row, period, BANK_CHARGES)
     inv_begin = num_val(row, period, INV_BEGIN)
     inv_end = num_val(row, period, INV_END)
     ic_file = num_val(row, period, IC_FILE)
@@ -102,11 +112,15 @@ def calc_qes_period(row: dict, period: str, lang: str = "en") -> dict:
     cls = classify_business(row, period)
     trade_margin = 0.0
     has_cost_of_goods = cls in ("Trade", "Industry")
-    if has_cost_of_goods:
+    if cls == "Trade":
         trade_margin = rev + inv_end - inv_begin - raw
         gross_output = trade_margin
-        ic = ic_file or (ops + exp) if cls == "Trade" else ic_file or (ops + exp + raw)
+        ic = ic_file or (ops + exp)
         profit = trade_margin - (exp - raw)
+    elif cls == "Industry":
+        gross_output = rev + inv_end - inv_begin
+        ic = ic_file or (ops + bank + raw)
+        profit = gross_output - exp
     else:  # Construction, Transport, and everything else (services, real estate, ...)
         gross_output = rev
         ic = ic_file or (ops + exp)
@@ -125,6 +139,7 @@ def calc_qes_period(row: dict, period: str, lang: str = "en") -> dict:
         "operations_cost": ops,
         "employee_salary": sal,
         "raw_material": raw,
+        "bank_charges": bank,
         "begin_inventory": inv_begin,
         "end_inventory": inv_end,
         "ic_from_file": ic_file,
@@ -198,7 +213,7 @@ EXPENSE_DETAILS = [
     ("Engineering & Consultation Services", "الخدمات الهندسية والاستشارية", ["T4_2_16_ENGIN_TOT"]),
     ("Legal & Courts Expenses", "المصاريف القانونية والقضائية", ["T4_2_17_LEGAL_TOT"]),
     ("Advertisements and Promotions", "الإعلانات والترويج", ["T4_2_18_ADVERT_TOT"]),
-    ("Banking Charges", "العمولات البنكية", ["T4_3_5_BANK_CHARGE"]),
+    ("Banking Charges", "العمولات البنكية", ["T4_3_5_BANK_CHARGE", "Banking_Charges"]),
 ]
 
 INVENTORY_PURCHASE_DETAILS = [

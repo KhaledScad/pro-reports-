@@ -11,11 +11,7 @@
 
 <div class="card">
   <form method="get" action="/survey/qes" class="search-form">
-    <label for="frame_id">{{ t('frame_id') }}</label>
-    <select id="frame_id" name="frame_id" required>
-      <option value="" disabled {{ "selected" if not frame_id }}>{{ t('frame_id') }}</option>
-      {% for f in frame_options %}<option value="{{ f }}" {{ "selected" if f == frame_id }}>{{ f }}</option>{% endfor %}
-    </select>
+    {% include "_frame_search.html" %}
 
     <label for="mode">{{ t('calc_mode') }}</label>
     <select id="mode" name="mode">
@@ -27,13 +23,13 @@
     <div class="period-box">
       <div class="period-col">
         <strong>{{ t('single_quarter') }}</strong>
-        {% for p in periods %}
-        <label class="radio-row"><input type="radio" name="quarter" value="{{ p }}" {{ "checked" if (quarter == p) or (not quarter and loop.last) }}> {{ p|period_label(lang) }}</label>
+        {% for p in periods|reverse %}
+        <label class="radio-row"><input type="radio" name="quarter" value="{{ p }}" {{ "checked" if (quarter == p) or (not quarter and loop.first) }}> {{ p|period_label(lang) }}</label>
         {% endfor %}
       </div>
       <div class="period-col">
         <strong>{{ t('periods_to_compare') }}</strong>
-        {% for p in periods %}
+        {% for p in periods|reverse %}
         <label class="radio-row"><input type="checkbox" name="quarters" value="{{ p }}" {{ "checked" if p in (result.periods if result else quarters) }}> {{ p|period_label(lang) }}</label>
         {% endfor %}
       </div>
@@ -46,18 +42,7 @@
 {% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
 
 {% if meta %}
-<div class="card">
-  <h3>{{ t('record') }}</h3>
-  <div class="fields-grid">
-    <div class="field"><span>{{ t('frame_id') }}</span><strong>{{ meta.frame_id }}</strong></div>
-    <div class="field"><span>{{ t('establishment') }}</span><strong>{{ meta.establishment_name or '-' }}</strong></div>
-    <div class="field"><span>{{ t('isic4') }}</span><strong>{{ meta.isic4 or '-' }}</strong></div>
-    <div class="field"><span>{{ t('activity_type') }}</span><strong>{{ meta.activity_type or '-' }}</strong></div>
-    <div class="field"><span>{{ t('auditor') }}</span><strong>{{ meta.auditor_name or meta.auditor_username or '-' }}</strong></div>
-    <div class="field"><span>{{ t('enumerator') }}</span><strong>{{ meta.enumerator_name or meta.enumerator_username or '-' }}</strong></div>
-    <div class="field"><span>{{ t('supervisor_username') }}</span><strong>{{ meta.supervisor_username or '-' }}</strong></div>
-  </div>
-</div>
+{% include "_record_card.html" %}
 {% endif %}
 
 {% if result %}
@@ -70,33 +55,37 @@
   </div>
   {% endif %}
 
-  {% for c in result.calcs %}
+  {% for c in result.calcs|reverse %}
   <div class="formula-box">
     <strong>{{ c.period|period_label(lang) }} &mdash; {{ c.business_class }}</strong>
+    {% set src = period_sources.get(c.period) %}{% if src %}<span class="muted small">&middot; {{ t('frame_id') }} {{ src.frame_id }}{% if src.also %} ({{ t('also_reported_under') }} {{ src.also|join(', ') }}){% endif %}</span>{% endif %}
     {% if c.business_class == "Trade" %}
     <div class="formula-line">{{ t('gross_output') }} = Revenue + Inv.End &minus; Inv.Begin &minus; Raw material
       = {{ c.total_revenue|fmt }} + {{ c.end_inventory|fmt }} &minus; {{ c.begin_inventory|fmt }} &minus; {{ c.raw_material|fmt }} = <strong>{{ c.gross_output|fmt }}</strong></div>
     <div class="formula-line">{{ t('intermediate_consumption') }} = Operations cost + Expenses
-      = {{ c.operations_cost|fmt }} + {{ c.total_expenses|fmt }} = <strong>{{ c.intermediate_consumption|fmt }}</strong></div>
+      = {{ c.operations_cost|fmt }} + {{ c.total_expenses|fmt }} = <strong>{{ c.intermediate_consumption|fmt }}</strong>{% if c.ic_from_file %} <span class="muted small">({{ t('ic_from_file') }})</span>{% endif %}</div>
     {% elif c.business_class == "Industry" %}
-    <div class="formula-line">{{ t('gross_output') }} = Revenue + Inv.End &minus; Inv.Begin &minus; Raw material
-      = {{ c.total_revenue|fmt }} + {{ c.end_inventory|fmt }} &minus; {{ c.begin_inventory|fmt }} &minus; {{ c.raw_material|fmt }} = <strong>{{ c.gross_output|fmt }}</strong></div>
-    <div class="formula-line">{{ t('intermediate_consumption') }} = Operations cost + Expenses + Raw material
-      = {{ c.operations_cost|fmt }} + {{ c.total_expenses|fmt }} + {{ c.raw_material|fmt }} = <strong>{{ c.intermediate_consumption|fmt }}</strong></div>
+    <div class="formula-line">{{ t('gross_output') }} = Revenue + Inv.End &minus; Inv.Begin
+      = {{ c.total_revenue|fmt }} + {{ c.end_inventory|fmt }} &minus; {{ c.begin_inventory|fmt }} = <strong>{{ c.gross_output|fmt }}</strong></div>
+    <div class="formula-line">{{ t('intermediate_consumption') }} = Operations cost + Bank charges + Raw material
+      = {{ c.operations_cost|fmt }} + {{ c.bank_charges|fmt }} + {{ c.raw_material|fmt }} = <strong>{{ c.intermediate_consumption|fmt }}</strong>{% if c.ic_from_file %} <span class="muted small">({{ t('ic_from_file') }})</span>{% endif %}</div>
     {% else %}
     <div class="formula-line">{{ t('gross_output') }} = Revenue = <strong>{{ c.gross_output|fmt }}</strong></div>
     <div class="formula-line">{{ t('intermediate_consumption') }} = Operations cost + Expenses
-      = {{ c.operations_cost|fmt }} + {{ c.total_expenses|fmt }} = <strong>{{ c.intermediate_consumption|fmt }}</strong></div>
+      = {{ c.operations_cost|fmt }} + {{ c.total_expenses|fmt }} = <strong>{{ c.intermediate_consumption|fmt }}</strong>{% if c.ic_from_file %} <span class="muted small">({{ t('ic_from_file') }})</span>{% endif %}</div>
     {% endif %}
     <div class="formula-line">{{ t('added_value') }} = {{ t('gross_output') }} &minus; {{ t('intermediate_consumption') }}
       = {{ c.gross_output|fmt }} &minus; {{ c.intermediate_consumption|fmt }} = <strong>{{ c.added_value|fmt }}</strong></div>
-    {% if c.has_cost_of_goods %}
+    {% if c.business_class == "Trade" %}
     <div class="formula-line">{{ t('profit') }} = {{ t('gross_output') }} &minus; (Expenses &minus; Raw material)
       = {{ c.gross_output|fmt }} &minus; ({{ c.total_expenses|fmt }} &minus; {{ c.raw_material|fmt }}) = <strong>{{ c.profit|fmt }}</strong></div>
+    {% elif c.business_class == "Industry" %}
+    <div class="formula-line">{{ t('profit') }} = {{ t('gross_output') }} &minus; Expenses
+      = {{ c.gross_output|fmt }} &minus; {{ c.total_expenses|fmt }} = <strong>{{ c.profit|fmt }}</strong></div>
     {% else %}
     <div class="formula-line">{{ t('profit') }} = Revenue &minus; Expenses = {{ c.total_revenue|fmt }} &minus; {{ c.total_expenses|fmt }} = <strong>{{ c.profit|fmt }}</strong></div>
     {% endif %}
-    <div class="formula-line">{{ t('average_salary') }} = Employee compensation &divide; Employees &divide; 3
+    <div class="formula-line">{{ t('average_salary') }} = {{ t('compensation') }} &divide; Employees &divide; 3
       = {{ c.employee_salary|fmt }} &divide; {{ c.employees|fmt }} &divide; 3 = <strong>{{ c.average_salary|fmt }}</strong></div>
   </div>
 
@@ -109,6 +98,7 @@
     <div class="field"><span>{{ t('added_value') }}</span><strong class="{{ 'positive' if c.added_value > 0 else 'negative' if c.added_value < 0 else '' }}">{{ c.added_value|fmt }}</strong></div>
     <div class="field"><span>{{ t('profit') }}</span><strong class="{{ 'positive' if c.profit > 0 else 'negative' if c.profit < 0 else '' }}">{{ c.profit|fmt }}</strong></div>
     <div class="field"><span>{{ t('employees') }}</span><strong>{{ c.employees|fmt }}</strong></div>
+    <div class="field"><span>{{ t('compensation') }}</span><strong>{{ c.employee_salary|fmt }}</strong></div>
     <div class="field"><span>{{ t('average_salary') }}</span><strong>{{ c.average_salary|fmt }}</strong></div>
     <div class="field"><span>{{ t('profit_pct') }}</span><strong>{{ c.profit_pct|pct }}</strong></div>
     <div class="field"><span>{{ t('av_pct') }}</span><strong>{{ c.av_pct|pct }}</strong></div>

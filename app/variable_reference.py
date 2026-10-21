@@ -3,15 +3,14 @@ Admin-only downloadable XLSX variable reference for QES and FISQ.
 
 Unlike `guide.html` (deliberately worded for end users, with no raw
 spreadsheet column names), this file is FOR the people preparing the
-upload spreadsheets — it lists every technical column name the app looks
-for, the label auditors see for it in the tool, a description, and
-whether it feeds the Calculation page, the Comparison page, or both.
+upload spreadsheets — it lists every technical column name in the 20-10
+variable list, the label auditors see for it in the tool, a description,
+and whether it feeds the Calculation page, the Comparison page, or both.
+Its last sheet shows the exact upload layout with dummy records under it.
 
-Every technical column listed here may also be supplied as a
-period-prefixed "wide" column (`Q1_2026_Total_Revenue` instead of plain
-`Total_Revenue`) — the app tries the period-prefixed form first, then
-falls back to the plain column name. That convention applies uniformly
-and is noted once in the sheet header rather than on every row.
+Per-quarter columns carry the quarter in front (`Q3_2026_Total_Revenue`);
+that convention, and how merged-file prefixes are handled on upload, is
+noted once in the sheet header rather than on every row.
 """
 from __future__ import annotations
 
@@ -23,7 +22,8 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
 from .calculations_qes import DETAIL_GROUPS as QES_DETAIL_GROUPS
-from .calculations_fisq import COMPONENT_GROUPS as FISQ_COMPONENT_GROUPS, EQUITY_FORM_DETAIL as FISQ_EQUITY_FORM_DETAIL
+from .calculations_fisq import COMPONENT_GROUPS as FISQ_COMPONENT_GROUPS
+from .dummy_data import dummy_rows
 
 HEADER_FILL = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
 HEADER_FONT = Font(color="FFFFFF", bold=True)
@@ -37,42 +37,86 @@ COLUMNS = [
 ]
 COLUMN_WIDTHS = [22, 46, 26, 26, 58, 58, 16]
 
-# Identification / who's-who fields shared by QES and FISQ alike (from
-# calc_common.record_meta() and excel_utils.get_frame_id()).
-IDENTIFICATION_ROWS = [
-    ("Frame_ID (or FRAME, ID, ESTABLISHMENTID, ESTABLISHMENTNUMBER — any Frame-ID-looking header)",
-     "Frame ID", "رقم الإطار",
-     "Uniquely identifies the establishment. Used to look up every quarterly submission for it, and to search on the Calculation/Comparison pages.",
-     "يحدد المنشأة بشكل فريد. يُستخدم لاسترجاع كل استمارة ربعية لها، وللبحث في صفحتي الاحتساب والمقارنة.",
-     "Both"),
-    ("ESTABLISHMENT_NAME", "Establishment", "المنشأة",
-     "Establishment's display name.", "الاسم المعروض للمنشأة.", "Both"),
-    ("ISIC4", "ISIC4", "ISIC4",
-     "Four-digit ISIC classification code. The first two digits drive automatic business-activity classification (Trade 45–47, Industry 10–33, Construction 41–43, Transport 49–53, else Other). Also feeds the ISIC classification-stability check on the Comparison page.",
-     "رمز التصنيف ISIC4 المكوّن من أربعة أرقام. أول رقمين يحددان تصنيف النشاط تلقائياً (تجارة 45–47، صناعة 10–33، إنشاءات 41–43، نقل 49–53، وإلا أخرى). يغذي أيضاً فحص استقرار تصنيف ISIC4 في صفحة المقارنة.",
-     "Both"),
-    ("ISIC4_DESC_EN, ISIC4_DESC_AR", "ISIC4 description", "وصف ISIC4",
-     "Text description of the ISIC4 code. Also scanned for activity keywords as a fallback classification signal.",
-     "وصف نصي لرمز ISIC4. يُفحص أيضاً بحثاً عن كلمات مفتاحية للنشاط كإشارة تصنيف احتياطية.",
-     "Both"),
-    ("ACTIVITY_TYPE_EN, ACTIVITY_TYPE_AR", "Activity type", "نوع النشاط",
+_NOT_USED_EN = "Kept with the record; not shown or used by the tool."
+_NOT_USED_AR = "تُحفظ مع السجل؛ لا تعرضها الأداة ولا تستخدمها."
+
+# Who's-who columns shared by both layouts (calc_common.record_meta(), auth.py).
+ASSIGNMENT_ROWS = [
+    ("Assignment", "Auditor_User_Name", "—", "—",
+     "Login username of the auditor. A user whose Job is Auditor only sees records with their username here, in any quarter.",
+     "اسم دخول المدقق. المستخدم الذي وظيفته مدقق يرى فقط السجلات التي تحمل اسم مستخدمه هنا، في أي ربع.", "Both"),
+    ("Assignment", "ENUMERATOR_User_name", "—", "—",
+     "Login username of the enumerator / Key Account Manager; the same per-quarter matching for that role.",
+     "اسم دخول الباحث / مدير الحساب الرئيسي؛ بنفس المطابقة لكل ربع لهذا الدور.", "Both"),
+    ("Assignment", "AUD_Supervisor_USER_Name", "Supervisor name", "اسم المشرف",
+     "Username of the auditor's supervisor. A Supervisor sees records with their username here or in ENU_Supervisor_User_Name; the Record card shows this account's name from the account list.",
+     "اسم مستخدم مشرف المدقق. يرى المشرف السجلات التي تحمل اسم مستخدمه هنا أو في ENU_Supervisor_User_Name؛ وتعرض بطاقة السجل اسم صاحب هذا الحساب من قائمة الحسابات.", "Both"),
+    ("Assignment", "ENU_Supervisor_User_Name", "—", "—",
+     "Username of the enumerator's supervisor; also gives that Supervisor access to the record.",
+     "اسم مستخدم مشرف الباحث؛ يمنح هذا المشرف أيضاً صلاحية الوصول إلى السجل.", "Both"),
+]
+
+_ISIC_ROW = ("Identification", "ISIC4", "ISIC4", "ISIC4",
+             "Four-digit ISIC classification code, shown on the Record card. Feeds the ISIC classification-stability check on the Comparison page.",
+             "رمز التصنيف ISIC4 المكوّن من أربعة أرقام، يظهر في بطاقة السجل. يغذي فحص استقرار تصنيف ISIC4 في صفحة المقارنة.", "Both")
+_STRATUM_ROW = ("Identification", "STRATUM", "Stratum", "الطبقة",
+                "Sample stratum, shown on the Record card.", "طبقة العينة، تظهر في بطاقة السجل.", "Both")
+_LICENCE_DESC_EN = ("Searchable from the License Number box and shown on the Record card. A search for any Frame ID "
+                    "combines every Frame ID with the same number into one record, each quarter taken from the Frame ID "
+                    "that reported it; the card lists them. The newest quarter's non-empty value is used.")
+_LICENCE_DESC_AR = ("يمكن البحث به من خانة رقم الرخصة ويظهر في بطاقة السجل. البحث بأي رقم إطار يدمج كل أرقام الإطار "
+                    "التي تحمل الرقم نفسه في سجل واحد، ويؤخذ كل ربع من رقم الإطار الذي أورده؛ وتعرضها البطاقة. "
+                    "يُستخدم أحدث رقم غير فارغ من الأرباع.")
+
+QES_IDENTIFICATION_ROWS = [
+    ("Identification", "FRAME_ID", "Frame ID", "رقم الإطار",
+     "Uniquely identifies the establishment, one row per Frame ID. Used to find every quarter's figures for it, and to search on the Calculation/Comparison pages.",
+     "يحدد المنشأة بشكل فريد، صف واحد لكل رقم إطار. يُستخدم لاسترجاع أرقام كل ربع لها، وللبحث في صفحتي الاحتساب والمقارنة.", "Both"),
+    ("Identification", "ESTABLISHMENT_NAME (the other quarter blocks' copies: Left_Right_ / Right_ / Right_Right_ESTABLISHMENT_NAME)",
+     "Establishment", "المنشأة", "Establishment's display name.", "الاسم المعروض للمنشأة.", "Both"),
+    ("Identification", "Licence_Number (the other quarter blocks' copies: Left_Right_ / Right_ / Right_Right_Licence_Number)",
+     "License Number", "رقم الرخصة", _LICENCE_DESC_EN, _LICENCE_DESC_AR, "Both"),
+    ("Identification", "YEAR, QUARTER", "—", "—",
+     "Year and quarter of the block of columns. The three QES blocks labelled Q2_2026 (Q2_2026_ / Right_Q2_2026_ / Right_Right_Q2_2026_) hold each establishment's latest records in turn, so the tool reads these values for every record to tell which quarter each block holds (mostly Q2 2026, Q1 2026, Q4 2025). A block whose label is unique, such as Q3_2026_, is taken as labelled.",
+     "السنة والربع لمجموعة الأعمدة. تحمل مجموعات QES الثلاث المسماة Q2_2026 (Q2_2026_ و Right_Q2_2026_ و Right_Right_Q2_2026_) أحدث سجلات كل منشأة بالتتابع، لذا تقرأ الأداة هذه القيم لكل سجل لتحديد الربع الذي تحمله كل مجموعة (غالباً الربع الثاني 2026 والربع الأول 2026 والربع الرابع 2025). أما المجموعة ذات التسمية الفريدة مثل Q3_2026_ فتؤخذ كما سُمّيت.", "Both"),
+    _STRATUM_ROW,
+    ("Identification", "REGION_ID, ADDRESS", "—", "—", _NOT_USED_EN, _NOT_USED_AR, "—"),
+    ("Identification", "ACTIVITY_TYPE_EN, ACTIVITY_TYPE_AR", "Activity type", "نوع النشاط",
      "Free-text business activity as reported. Scanned for activity keywords (trade/industry/construction/transport, EN+AR) as a fallback classification signal alongside the ISIC4 code range.",
      "النشاط التجاري كنص حر كما ورد. يُفحص بحثاً عن كلمات مفتاحية للنشاط (تجارة/صناعة/إنشاءات/نقل، عربي وإنجليزي) كإشارة تصنيف احتياطية إلى جانب نطاق رمز ISIC4.",
      "Both"),
-    ("AUDITOR_NAME_EN, AUDITOR_NAME_AR, Auditor_User_Name (or Auditor_Username)",
-     "Auditor", "المدقق",
-     "Name / username of the auditor of record. Shown on Calculation/Comparison pages; also drives auditor-scoped row visibility (an Auditor role only sees rows matching their own username).",
-     "اسم/اسم مستخدم المدقق المسؤول. يظهر في صفحتي الاحتساب والمقارنة؛ ويحدد أيضاً رؤية الصفوف حسب دور المدقق (يرى المدقق الصفوف الخاصة باسم مستخدمه فقط).",
+    ("Identification", "ISIC4", "ISIC4", "ISIC4",
+     "Four-digit ISIC classification code. The first two digits drive automatic business-activity classification (Trade 45–47, Industry 10–33, Construction 41–43, Transport 49–53, else Other). Also feeds the ISIC classification-stability check on the Comparison page.",
+     "رمز التصنيف ISIC4 المكوّن من أربعة أرقام. أول رقمين يحددان تصنيف النشاط تلقائياً (تجارة 45–47، صناعة 10–33، إنشاءات 41–43، نقل 49–53، وإلا أخرى). يغذي أيضاً فحص استقرار تصنيف ISIC4 في صفحة المقارنة.",
      "Both"),
-    ("ENUMERATOR_NAME_EN, ENUMERATOR_NAME_AR, _ENUMERATOR_User_name (or ENUMERATOR_User_name / Enumerator_User_Name)",
-     "Enumerator", "الباحث الميداني",
-     "Name / username of the enumerator of record. Same role as Auditor above, for the Enumerator role's row visibility.",
-     "اسم/اسم مستخدم الباحث الميداني المسؤول. نفس دور المدقق أعلاه، لتحديد رؤية الصفوف لدور الباحث الميداني.",
-     "Both"),
-    ("Supervisor_USER_Name (or Supervisor_Username)", "Supervisor username", "اسم مستخدم المشرف",
-     "Drives row visibility for the Supervisor role.", "يحدد رؤية الصفوف لدور المشرف.", "Both"),
-    ("YEAR", "Year", "السنة", "Reported year, shown for reference alongside the record.",
-     "السنة المُبلغ عنها، تُعرض للمرجعية إلى جانب السجل.", "Both"),
+    ("Identification", "ISIC4_DESC_EN, ISIC4_DESC_AR", "ISIC4 description", "وصف ISIC4",
+     "Text description of the ISIC4 code. Also scanned for activity keywords as a fallback classification signal.",
+     "وصف نصي لرمز ISIC4. يُفحص أيضاً بحثاً عن كلمات مفتاحية للنشاط كإشارة تصنيف احتياطية.", "Both"),
+    ("Assignment", "AUDITOR_NAME_EN, AUDITOR_NAME_AR", "Auditor", "المدقق",
+     "Auditor's name, shown on the Record card.", "اسم المدقق، يظهر في بطاقة السجل.", "Both"),
+    ("Assignment", "ENUMERATOR_NAME_EN, ENUMERATOR_NAME_AR", "Enumerator", "الباحث",
+     "Enumerator's name, shown on the Record card.", "اسم الباحث، يظهر في بطاقة السجل.", "Both"),
+    *ASSIGNMENT_ROWS,
+]
+
+FISQ_IDENTIFICATION_ROWS = [
+    ("Identification", "FRAMEID (Right_FRAMEID, the merged copy, is ignored)", "Frame ID", "رقم الإطار",
+     "Uniquely identifies the establishment, one row per Frame ID. Used to find every quarter's figures for it, and to search on the Calculation/Comparison pages.",
+     "يحدد المنشأة بشكل فريد، صف واحد لكل رقم إطار. يُستخدم لاسترجاع أرقام كل ربع لها، وللبحث في صفحتي الاحتساب والمقارنة.", "Both"),
+    ("Identification", "ESTABLISHMENT_NAME (second quarter's copy: Right_ESTABLISHMENT_NAME)",
+     "Establishment", "المنشأة", "Establishment's display name.", "الاسم المعروض للمنشأة.", "Both"),
+    ("Identification", "LICENSE_NUMBER (second quarter's copy: Right_LICENSE_NUMBER)",
+     "License Number", "رقم الرخصة", _LICENCE_DESC_EN, _LICENCE_DESC_AR, "Both"),
+    _STRATUM_ROW,
+    ("Identification", "VISIT_STATUS_EN, VISIT_STATUS_AR", "Visit status", "حالة الزيارة",
+     "Outcome of the quarter's visit, shown on the Record card.", "نتيجة زيارة الربع، تظهر في بطاقة السجل.", "Both"),
+    _ISIC_ROW,
+    ("Identification", "ISIC4_DESC_EN, ISIC4_DESC_AR", "—", "—", _NOT_USED_EN, _NOT_USED_AR, "—"),
+    ("Assignment", "AUDITOR_NAME (appears twice in each quarter; either copy works)", "Auditor", "المدقق",
+     "Auditor's name, shown on the Record card.", "اسم المدقق، يظهر في بطاقة السجل.", "Both"),
+    ("Assignment", "ENUMERATOR_NAME", "Enumerator", "الباحث",
+     "Enumerator's name, shown on the Record card.", "اسم الباحث، يظهر في بطاقة السجل.", "Both"),
+    *ASSIGNMENT_ROWS,
 ]
 
 QES_ROWS = [
@@ -80,33 +124,35 @@ QES_ROWS = [
      "Total revenue for the quarter. Feeds Gross output, Profit, Profit %.",
      "إجمالي الإيرادات خلال الربع. يغذي الإنتاج الإجمالي، الربح، ونسبة الربح.", "Both"),
     ("Revenue, expenses & cost of goods", "Total_Expenses", "Expenditure", "المصروفات",
-     "Total expenses for the quarter. For Trade/Industry establishments this already includes the Raw material figure as one of its line items — the Profit formula backs Raw material back out to avoid double-counting it. Feeds Profit, Intermediate consumption.",
-     "إجمالي المصروفات خلال الربع. بالنسبة للتجارة والصناعة، يتضمن هذا الرقم أصلاً قيمة المواد الخام كأحد بنوده — وتطرح معادلة الربح قيمة المواد الخام مرة أخرى لتفادي احتسابها مرتين. يغذي الربح، والاستهلاك الوسيط.", "Both"),
+     "Total expenses for the quarter. Feeds Profit, and Intermediate consumption for every activity except Industry. For Trade it already includes the net purchases (Raw material) — the Trade Profit formula backs them out again to avoid double-counting.",
+     "إجمالي المصروفات خلال الربع. يغذي الربح، والاستهلاك الوسيط لكل الأنشطة عدا الصناعة. بالنسبة للتجارة، يتضمن أصلاً صافي المشتريات (المواد الخام) — وتطرحها معادلة ربح التجارة مرة أخرى لتفادي احتسابها مرتين.", "Both"),
     ("Revenue, expenses & cost of goods", "Operations_Cost", "Operations cost", "تكلفة التشغيل",
-     "Feeds Intermediate consumption (Operations cost + Expenditure, plus Raw material for Industry).",
-     "يغذي الاستهلاك الوسيط (تكلفة التشغيل + المصروفات، بالإضافة إلى المواد الخام للصناعة).", "Both"),
+     "Feeds Intermediate consumption: Operations cost + Bank charges + Raw material for Industry, Operations cost + Expenditure for every other activity.",
+     "يغذي الاستهلاك الوسيط: تكلفة التشغيل + العمولات البنكية + المواد الخام للصناعة، وتكلفة التشغيل + المصروفات لكل نشاط آخر.", "Both"),
     ("Revenue, expenses & cost of goods", "RAW_Material", "Raw material", "المواد الخام",
-     "For Industry establishments: raw material used in production. For Trade establishments: net purchases for resale — the same column serves both meanings depending on the establishment's classified activity. Feeds Gross output, Intermediate consumption (Industry only), and Profit for both Trade & Industry. Not used for Construction/Transport/Other.",
-     "للصناعة: المواد الخام المستخدمة في الإنتاج. للتجارة: صافي المشتريات لغرض إعادة البيع — نفس العمود يخدم كلا المعنيين حسب تصنيف نشاط المنشأة. يغذي الإنتاج الإجمالي، والاستهلاك الوسيط (للصناعة فقط)، والربح لكل من التجارة والصناعة. لا يُستخدم للإنشاءات/النقل/أخرى.", "Both"),
-    ("Revenue, expenses & cost of goods",
-     "Total_Finished_Goods_Begining_Of_period (or Finished_Goods_Begining_Of_period / Finished_Goods_Beginning_Of_period / Inventory_Start)",
+     "For Industry: raw material used in production — feeds Intermediate consumption. For Trade: net purchases for resale — feeds Gross output and Profit. Not used for Construction/Transport/Other.",
+     "للصناعة: المواد الخام المستخدمة في الإنتاج — تغذي الاستهلاك الوسيط. للتجارة: صافي المشتريات لغرض إعادة البيع — تغذي الإنتاج الإجمالي والربح. لا تُستخدم للإنشاءات/النقل/أخرى.", "Both"),
+    ("Revenue, expenses & cost of goods", "Total_Finished_Goods_Begining_Of_period",
      "Inventory start", "المخزون، أول المدة",
      "Combined finished-goods + work-in-progress inventory value at the start of the quarter (Trade & Industry only). Feeds Gross output; checked against the previous quarter's Inventory end in the Inventory continuity check.",
      "قيمة مخزون البضاعة التامة وغير التامة الصنع مجتمعة في بداية الربع (للتجارة والصناعة فقط). يغذي الإنتاج الإجمالي؛ ويُقارَن بمخزون آخر المدة للربع السابق في فحص استمرارية المخزون.", "Both"),
-    ("Revenue, expenses & cost of goods",
-     "Total_Finished_Goods_End_of_period (or Finished_Goods_End_of_period / Inventory_End)",
+    ("Revenue, expenses & cost of goods", "Total_Finished_Goods_End_of_period",
      "Inventory end", "المخزون، آخر المدة",
      "Same as Inventory start, at the close of the quarter.",
      "نفس مخزون أول المدة، في نهاية الربع.", "Both"),
     ("Revenue, expenses & cost of goods", "IC", "Intermediate consumption (as reported)", "الاستهلاك الوسيط (كما ورد)",
-     "If present and non-zero, used directly instead of being computed from Operations cost + Expenditure (+ Raw material for Industry).",
-     "إذا وُجدت وكانت غير صفرية، تُستخدم مباشرة بدلاً من احتسابها من تكلفة التشغيل + المصروفات (+ المواد الخام للصناعة).", "Both"),
-    ("Employment", "Employee_Salary", "Compensation", "التعويضات",
-     "Total employee compensation for the quarter. Feeds Average salary (÷ Employees ÷ 3).",
-     "إجمالي تعويضات الموظفين خلال الربع. يغذي متوسط الراتب (÷ عدد الموظفين ÷ 3).", "Both"),
-    ("Employment", "TOTAL_EMPLOYEES (or Employee_Number)", "Employees", "عدد الموظفين",
-     "Headcount for the quarter. Feeds Average salary; also shown in the Employee comparison table with the period-over-period change (count and %).",
-     "عدد الموظفين خلال الربع. يغذي متوسط الراتب؛ ويظهر أيضاً في جدول مقارنة الموظفين مع التغيّر بين الفترات (بالعدد والنسبة).", "Both"),
+     "If present and non-zero, used directly instead of the activity's formula (for Industry it always equals Operations cost + Bank charges + Raw material in the 20-10 data).",
+     "إذا وُجدت وكانت غير صفرية، تُستخدم مباشرة بدلاً من معادلة النشاط (للصناعة تساوي دائماً تكلفة التشغيل + العمولات البنكية + المواد الخام في بيانات 20-10).", "Both"),
+    ("Revenue, expenses & cost of goods", "Banking_Charges", "Banking Charges", "العمولات البنكية",
+     "Feeds Intermediate consumption for Industry (Operations cost + Bank charges + Raw material); also shown in the Expense details.",
+     "يغذي الاستهلاك الوسيط للصناعة (تكلفة التشغيل + العمولات البنكية + المواد الخام)؛ ويظهر أيضاً في تفاصيل المصروفات.", "Both"),
+    ("Revenue, expenses & cost of goods", "FUND_FOR_RESEARCH", "—", "—", _NOT_USED_EN, _NOT_USED_AR, "—"),
+    ("Employment", "Employee_Salary", "Total compensation", "إجمالي التعويضات",
+     "Total employee compensation for the quarter. Feeds Average compensation (÷ Employees ÷ 3).",
+     "إجمالي تعويضات الموظفين خلال الربع. يغذي متوسط التعويضات (÷ عدد الموظفين ÷ 3).", "Both"),
+    ("Employment", "TOTAL_EMPLOYEES", "Employees", "عدد الموظفين",
+     "Headcount for the quarter. Feeds Average compensation; also shown in the Employee comparison table with the period-over-period change (count and %).",
+     "عدد الموظفين خلال الربع. يغذي متوسط التعويضات؛ ويظهر أيضاً في جدول مقارنة الموظفين مع التغيّر بين الفترات (بالعدد والنسبة).", "Both"),
     ("Comments", "Comment_Revenue", "Revenue comment", "ملاحظة الإيرادات",
      "Free-text auditor note shown alongside the revenue figure.", "ملاحظة نصية من المدقق تظهر بجانب رقم الإيرادات.", "Calculation"),
     ("Comments", "Comment_Expense", "Expense comment", "ملاحظة المصروفات",
@@ -115,82 +161,31 @@ QES_ROWS = [
      "Free-text auditor note shown alongside the inventory figures.", "ملاحظة نصية من المدقق تظهر بجانب أرقام المخزون.", "Calculation"),
 ]
 
-_FISQ_ASSET_LIAB_NOTE_EN = "Same End_of_period-preferred, Begining_Of_period-fallback priority as the rest of FISQ's begin/end columns."
-_FISQ_ASSET_LIAB_NOTE_AR = "نفس أولوية التفضيل (نهاية المدة أولاً، ثم بداية المدة كبديل) المتبعة في بقية أعمدة FISQ للبداية/النهاية."
-
 FISQ_ROWS = [
-    ("Assets", "Current_Assets_Begining_Of_period (or _Beginning_Of_period / Current_Assets_Start)",
-     "Current assets — beginning of period", "الأصول المتداولة — بداية المدة",
-     "Assets expected to be used or converted to cash within the year, as of the start of the quarter. Feeds the beginning-of-period asset equation.",
-     "الأصول المتوقع استخدامها أو تحويلها إلى نقد خلال السنة، كما في بداية الربع. يغذي معادلة الأصول لبداية المدة.", "Both"),
-    ("Assets", "Current_Assets_End_of_period (or Current_Assets_End; also read as plain Current_Assets)",
-     "Current assets — end of period", "الأصول المتداولة — نهاية المدة",
-     "Same as above, at the close of the quarter — this is also the tool's primary \"current assets\" figure for the quarter as a whole.",
-     "نفس ما سبق، في نهاية الربع — وهو أيضاً الرقم الأساسي الذي تعتمده الأداة \"للأصول المتداولة\" لكامل الربع.", "Both"),
-    ("Assets", "Non_Current_Assets_Begining_Of_period (or _Beginning_Of_period / Non_Current_Assets_Start)",
-     "Non-current assets — beginning of period", "الأصول غير المتداولة — بداية المدة",
-     "Longer-term assets (property, equipment, ...), as of the start of the quarter.",
-     "الأصول طويلة الأجل (ممتلكات، معدات، ...)، كما في بداية الربع.", "Both"),
-    ("Assets", "Non_Current_Assets_End_of_period (or Non_Current_Assets_End; also read as plain Non_Current_Assets)",
-     "Non-current assets — end of period", "الأصول غير المتداولة — نهاية المدة",
-     "Same as above, at the close of the quarter — also the primary quarter-level figure.",
-     "نفس ما سبق، في نهاية الربع — وهو أيضاً الرقم الأساسي على مستوى الربع.", "Both"),
-    ("Assets", "Total_Assets_Begining_Of_period (or _Beginning_Of_period)",
-     "Total assets (as reported) — beginning of period", "إجمالي الأصول (كما ورد) — بداية المدة",
-     "The file's own reported total, shown alongside the calculated total (Current + Non-current assets) for comparison — not used in the calculation itself.",
-     "الإجمالي المُبلغ عنه في الملف، يُعرض بجانب الإجمالي المحتسب (المتداولة + غير المتداولة) للمقارنة — لا يُستخدم في الاحتساب نفسه.", "Comparison"),
-    ("Assets", "Total_Assets_End_of_period (also read as plain Total_Assets)",
-     "Total assets (as reported) — end of period", "إجمالي الأصول (كما ورد) — نهاية المدة",
-     "Same as above, end of quarter.", "نفس ما سبق، نهاية الربع.", "Comparison"),
-    ("Liabilities", "Current_Liabilities_Begining_Of_period (or _Beginning_Of_period / Current_Liabilities_Start)",
-     "Current liabilities — beginning of period", "المطلوبات المتداولة — بداية المدة",
-     "Obligations due within the year, as of the start of the quarter.",
-     "الالتزامات المستحقة خلال السنة، كما في بداية الربع.", "Both"),
-    ("Liabilities", "Current_Liabilities_End_of_period (or Current_Liabilities_End; also read as plain Current_Liabilities)",
-     "Current liabilities — end of period", "المطلوبات المتداولة — نهاية المدة",
-     "Same as above, end of quarter — also the primary quarter-level figure.",
-     "نفس ما سبق، نهاية الربع — وهو أيضاً الرقم الأساسي على مستوى الربع.", "Both"),
-    ("Liabilities",
-     "Non_Current_Liabilities_Begining_Of_period (or _Beginning_Of_period / Total_of_Long_Term_Liabilities_Begining_Of_period / Long_Term_Liabilities_Begining_Of_period / Non_Current_Liabilities_Start)",
-     "Non-current liabilities — beginning of period", "المطلوبات غير المتداولة — بداية المدة",
-     "Longer-term obligations, as of the start of the quarter.", "الالتزامات طويلة الأجل، كما في بداية الربع.", "Both"),
-    ("Liabilities",
-     "Non_Current_Liabilities_End_of_period (or Non_Current_Liabilities_End / Total_of_Long_Term_Liabilities_End_of_period / Long_Term_Liabilities_End_of_period; also read as plain Non_Current_Liabilities / Total_of_Long_Term_Liabilities / Long_Term_Liabilities / NonCurrent_Liabilities)",
-     "Non-current liabilities — end of period", "المطلوبات غير المتداولة — نهاية المدة",
-     "Same as above, end of quarter — also the primary quarter-level figure.",
-     "نفس ما سبق، نهاية الربع — وهو أيضاً الرقم الأساسي على مستوى الربع.", "Both"),
-    ("Liabilities", "Total_Liabilities_Begining_Of_period (or _Beginning_Of_period)",
-     "Total liabilities (as reported) — beginning of period", "إجمالي المطلوبات (كما ورد) — بداية المدة",
-     "The file's own reported total, shown alongside the calculated total for comparison — not used in the calculation itself.",
-     "الإجمالي المُبلغ عنه في الملف، يُعرض بجانب الإجمالي المحتسب للمقارنة — لا يُستخدم في الاحتساب نفسه.", "Comparison"),
-    ("Liabilities", "Total_Liabilities_End_of_period (also read as plain Total_Liabilities)",
-     "Total liabilities (as reported) — end of period", "إجمالي المطلوبات (كما ورد) — نهاية المدة",
-     "Same as above, end of quarter.", "نفس ما سبق، نهاية الربع.", "Comparison"),
-    ("Equity", "Equity_In_Form_Begining_Of_period (or _Beginning_Of_period / Equity_Form_Begining_Of_period / Form_Equity_Begining_Of_period)",
-     "Equity in form — beginning of period", "حقوق الملكية في الاستمارة — بداية المدة",
-     "The equity figure the establishment itself reported, as of the start of the quarter — the benchmark the calculated equity is checked against.",
-     "رقم حقوق الملكية الذي أبلغت عنه المنشأة نفسها، كما في بداية الربع — المرجع الذي تُقارَن به حقوق الملكية المحتسبة.", "Both"),
-    ("Equity", "Equity_In_Form_End_of_period (or Equity_Form_End_of_period / Form_Equity_End_of_period; also read as plain Equity_In_Form / Equity_Form / Form_Equity)",
-     "Equity in form — end of period", "حقوق الملكية في الاستمارة — نهاية المدة",
-     "Same as above, end of quarter — also the primary quarter-level figure used in the main asset-equation check.",
-     "نفس ما سبق، نهاية الربع — وهو أيضاً الرقم الأساسي المستخدم في فحص معادلة الأصول الرئيسي.", "Both"),
-    ("Equity", "Equity_Calculated (or Calculated_Equity)", "Calculated equity (as reported)", "حقوق الملكية المحتسبة (كما وردت)",
-     "The file's own calculated-equity figure, if present — shown for reference only, not used in the tool's own calculation.",
-     "رقم حقوق الملكية المحتسب الخاص بالملف نفسه، إن وُجد — يُعرض للمرجعية فقط، ولا يُستخدم في احتساب الأداة نفسها.", "Comparison"),
-    ("Equity details (7.1–7.6)", "Equity_7_1", "Equity detail 7.1", "تفصيل حقوق الملكية 7.1",
-     "First of six equity line items that together should sum to Equity in form.",
-     "أول ستة بنود تفصيلية لحقوق الملكية، يجب أن يكون مجموعها مساوياً لحقوق الملكية في الاستمارة.", "Comparison"),
-    ("Equity details (7.1–7.6)", "Equity_7_2", "Equity detail 7.2", "تفصيل حقوق الملكية 7.2",
-     "Also checked, together with 7.3 alone, against Equity in form (a common way this figure is expected to reconcile).",
-     "يُتحقق منه أيضاً، مع 7.3 وحدهما، مقابل حقوق الملكية في الاستمارة (طريقة شائعة يُتوقع أن يتوافق بها هذا الرقم).", "Comparison"),
-    ("Equity details (7.1–7.6)", "Equity_7_3", "Equity detail 7.3", "تفصيل حقوق الملكية 7.3",
-     "See Equity detail 7.2.", "انظر تفصيل حقوق الملكية 7.2.", "Comparison"),
-    ("Equity details (7.1–7.6)", "Equity_7_4", "Equity detail 7.4", "تفصيل حقوق الملكية 7.4",
-     "Part of the six-item equity total.", "جزء من إجمالي بنود حقوق الملكية الستة.", "Comparison"),
-    ("Equity details (7.1–7.6)", "Equity_7_5", "Equity detail 7.5", "تفصيل حقوق الملكية 7.5",
-     "Part of the six-item equity total.", "جزء من إجمالي بنود حقوق الملكية الستة.", "Comparison"),
-    ("Equity details (7.1–7.6)", "Equity_7_6", "Equity detail 7.6", "تفصيل حقوق الملكية 7.6",
-     "Part of the six-item equity total.", "جزء من إجمالي بنود حقوق الملكية الستة.", "Comparison"),
+    ("Assets", "Total_of_Current_Assets", "Current assets", "الأصول المتداولة",
+     "Total current assets at the end of the quarter. Feeds Total assets.",
+     "إجمالي الأصول المتداولة في نهاية الربع. يغذي إجمالي الأصول.", "Both"),
+    ("Assets", "Total_of _Non-Current_Assets", "Non-current assets", "الأصول غير المتداولة",
+     "Total non-current assets (property, equipment, ...). Feeds Total assets. In the 20-10 layout the Q1 2026 copy has no quarter prefix; the tool attaches it to Q1 2026 by its position.",
+     "إجمالي الأصول غير المتداولة (ممتلكات، معدات، ...). يغذي إجمالي الأصول. في تخطيط 20-10 نسخة الربع الأول 2026 بلا بادئة الربع؛ تنسبها الأداة إلى الربع الأول 2026 حسب موقعها.", "Both"),
+    ("Liabilities", "Total_of_Current_Liabilities", "Current liabilities", "المطلوبات المتداولة",
+     "Obligations due within the year. Feeds Total liabilities.",
+     "الالتزامات المستحقة خلال السنة. يغذي إجمالي المطلوبات.", "Both"),
+    ("Liabilities", "Total_of_Long-Term_Liabilities", "Non-current liabilities", "المطلوبات غير المتداولة",
+     "Long-term liabilities. Feeds Total liabilities.", "المطلوبات طويلة الأجل. يغذي إجمالي المطلوبات.", "Both"),
+    ("Equity", "Total_Equity", "Equity in form", "حقوق الملكية في الاستمارة",
+     "Total equity as reported in the form: the figure Calculated equity (Total assets − Total liabilities) is checked against.",
+     "إجمالي حقوق الملكية كما ورد في الاستمارة: الرقم الذي تُقارن به حقوق الملكية المحتسبة (إجمالي الأصول − إجمالي المطلوبات).", "Both"),
+    ("Equity", "7.2_Paid-up _Capital_Stock", "7.2 Paid-up capital", "7.2 رأس المال المدفوع",
+     "Paid-up capital. Together with 7.3 it should add up to Total_Equity (the 7.2 + 7.3 check).",
+     "رأس المال المدفوع. يجب أن يساوي مع البند 7.3 إجمالي حقوق الملكية (فحص 7.2 + 7.3).", "Both"),
+    ("Equity", "7.3_Other_Equity", "7.3 Other equity", "7.3 حقوق ملكية أخرى",
+     "Other equity. See 7.2.", "حقوق ملكية أخرى. انظر 7.2.", "Both"),
+    ("Older column names (still accepted)",
+     "Current_Assets, Non_Current_Assets, Current_Liabilities, Non_Current_Liabilities, Equity_In_Form, Equity_7_2, Equity_7_3 — and their _End_of_period / _Begining_Of_period forms",
+     "—", "—",
+     "Read only when the 20-10 name is missing, so files in the earlier layout still work. The _Begining_Of_period forms also switch on the Beginning vs end of period table.",
+     "تُقرأ فقط عند غياب اسم 20-10، لتبقى الملفات بالتخطيط السابق صالحة. كما تُفعّل صيغ بداية المدة جدول بداية المدة مقابل نهاية المدة.", "Both"),
 ]
 
 ANNUAL_ISIC_ROWS = [
@@ -248,12 +243,39 @@ def _write_sheet(ws: Worksheet, rows: list[tuple], note_en: str, note_ar: str) -
         r += 1
 
 
-_PERIOD_NOTE_EN = ("Every technical column below may also be supplied as a period-prefixed \"wide\" column "
-                    "(e.g. Q1_2026_Total_Revenue instead of plain Total_Revenue) — one column per quarter. "
-                    "The tool tries the period-prefixed form first, then falls back to the plain column name.")
-_PERIOD_NOTE_AR = ("يمكن توفير أي عمود تقني أدناه أيضاً كعمود \"عريض\" مسبوق بالفترة "
-                    "(مثل Q1_2026_Total_Revenue بدلاً من Total_Revenue) — عمود واحد لكل ربع. "
-                    "تحاول الأداة أولاً الشكل المسبوق بالفترة، ثم تعود إلى اسم العمود العادي كبديل.")
+def _write_layout_sheet(ws: Worksheet, survey_type: str) -> None:
+    """The exact 20-10 upload layout, column for column, with dummy records."""
+    headers, rows = dummy_rows(survey_type, 5)
+    ws.cell(row=1, column=1, value=_LAYOUT_NOTE_EN).font = Font(italic=True, color="6B7280")
+    ws.cell(row=2, column=1, value=_LAYOUT_NOTE_AR).font = Font(italic=True, color="6B7280")
+    for c, title in enumerate(headers, start=1):
+        cell = ws.cell(row=4, column=c, value=title)
+        cell.font = HEADER_FONT
+        cell.fill = HEADER_FILL
+        ws.column_dimensions[get_column_letter(c)].width = 18
+    for r, values in enumerate(rows, start=5):
+        for c, v in enumerate(values, start=1):
+            ws.cell(row=r, column=c, value=v)
+    ws.freeze_panes = "B5"
+
+
+_PERIOD_NOTE_EN = ("Per-quarter columns carry the quarter in front, e.g. Q3_2026_Total_Revenue — one copy per quarter. "
+                    "Files merged from several quarterly extracts may also carry Left_Right_ / Right_ / Right_Right_ prefixes: "
+                    "on upload the tool attaches each such column, and any column without a quarter label that sits inside a "
+                    "quarter's block, to that quarter. Blocks that share one label (QES: Q2_2026_ / Right_Q2_2026_ / "
+                    "Right_Right_Q2_2026_) are placed record by record from their own YEAR / QUARTER values. "
+                    "The last sheet shows the exact upload layout with dummy records.")
+_PERIOD_NOTE_AR = ("تحمل الأعمدة الربعية الربع في بدايتها، مثل Q3_2026_Total_Revenue — نسخة لكل ربع. "
+                    "قد تحمل الملفات المدمجة من عدة مستخرجات ربعية أيضاً البادئات Left_Right_ / Right_ / Right_Right_: "
+                    "عند الرفع تنسب الأداة كل عمود منها، وكل عمود بلا تسمية ربع يقع ضمن مجموعة ربع، إلى ذلك الربع. "
+                    "أما المجموعات التي تشترك في تسمية واحدة (في QES: Q2_2026_ و Right_Q2_2026_ و Right_Right_Q2_2026_) "
+                    "فتُنسب سجلاً سجلاً حسب قيم YEAR / QUARTER الخاصة بها. "
+                    "تعرض الورقة الأخيرة تخطيط الرفع بالضبط مع سجلات تجريبية.")
+
+_LAYOUT_NOTE_EN = ("Exact upload layout from \"QES and FISQ varibles 20-10.xlsx\", column for column, with 5 dummy records. "
+                    "Upload this sheet as it is to try the tool; every figure is made up.")
+_LAYOUT_NOTE_AR = ("تخطيط الرفع كما في ملف \"QES and FISQ varibles 20-10.xlsx\" عموداً بعمود، مع 5 سجلات تجريبية. "
+                    "يمكن رفع هذه الورقة كما هي لتجربة الأداة؛ كل الأرقام وهمية.")
 
 _ANNUAL_NOTE_EN = ("This sheet is not part of the QES/FISQ upload file — it's the separate annual AES / FIS "
                     "reference file (Admin panel → AES / FIS upload cards) used only for the ISIC "
@@ -265,14 +287,17 @@ _ANNUAL_NOTE_AR = ("هذه الورقة ليست جزءاً من ملف رفع Q
 
 _DETAIL_DESC_EN = "Optional survey-form line item, shown for reference on the Calculation/Comparison pages — read-only, does not feed any formula above."
 _DETAIL_DESC_AR = "بند اختياري من استمارة المسح، يُعرض للمرجعية في صفحتي الاحتساب والمقارنة — للعرض فقط، ولا يدخل في أي معادلة أعلاه."
+_FISQ_ITEM_DESC_EN = ("Survey-form item, shown with its previous-period value (the _PREV column) for reference. It is part of "
+                       "the total above, never added into it.")
+_FISQ_ITEM_DESC_AR = "بند من استمارة المسح، يُعرض مع قيمته للفترة السابقة (عمود _PREV) للمرجعية. هو جزء من الإجمالي أعلاه، ولا يُضاف إليه."
 
 _DETAIL_NOTE_EN = ("Every column below is OPTIONAL and read-only: if present, it appears in a collapsible "
                     "\"Survey form details\" section on the Calculation/Comparison pages, purely for reference. "
-                    "None of these feed Total_Revenue / Total_Expenses / Current_Assets / etc. above — those keep "
-                    "being read exactly as before, regardless of whether these columns are supplied.")
+                    "None of these feed the totals on the first sheet — those keep being read from their own "
+                    "columns, regardless of whether these columns are supplied.")
 _DETAIL_NOTE_AR = ("كل عمود أدناه اختياري وللعرض فقط: إذا وُجد، يظهر في قسم قابل للطي بعنوان \"تفاصيل استمارة المسح\" "
-                    "في صفحتي الاحتساب والمقارنة، للمرجعية فقط. لا يدخل أي منها في احتساب Total_Revenue / "
-                    "Total_Expenses / Current_Assets / إلخ أعلاه — فتلك تبقى كما هي بغض النظر عن توفر هذه الأعمدة.")
+                    "في صفحتي الاحتساب والمقارنة، للمرجعية فقط. لا يدخل أي منها في الإجماليات في الورقة الأولى — "
+                    "فتلك تُقرأ من أعمدتها بغض النظر عن توفر هذه الأعمدة.")
 
 
 def _qes_detail_rows() -> list[tuple]:
@@ -288,11 +313,8 @@ def _fisq_detail_rows() -> list[tuple]:
     rows = []
     for g in FISQ_COMPONENT_GROUPS:
         for label_en, label_ar, codes in g["components"]:
-            tech = " (or) ".join(codes) if len(codes) > 1 else codes[0]
-            rows.append((g["title_en"], tech, label_en, label_ar, _DETAIL_DESC_EN, _DETAIL_DESC_AR, "Both"))
-    for label_en, label_ar, codes in FISQ_EQUITY_FORM_DETAIL:
-        tech = " (or) ".join(codes) if len(codes) > 1 else codes[0]
-        rows.append(("Equity details (form Q7)", tech, label_en, label_ar, _DETAIL_DESC_EN, _DETAIL_DESC_AR, "Both"))
+            tech = f"{codes[0]} (previous period: {codes[0]}_PREV)"
+            rows.append((g["title_en"], tech, label_en, label_ar, _FISQ_ITEM_DESC_EN, _FISQ_ITEM_DESC_AR, "Both"))
     return rows
 
 
@@ -303,7 +325,7 @@ def build_workbook(survey_type: str) -> bytes:
     ws = wb.active
     ws.title = survey_type
 
-    rows = IDENTIFICATION_ROWS_FOR(survey_type) + (QES_ROWS if survey_type == "QES" else FISQ_ROWS)
+    rows = (QES_IDENTIFICATION_ROWS + QES_ROWS) if survey_type == "QES" else (FISQ_IDENTIFICATION_ROWS + FISQ_ROWS)
     _write_sheet(ws, rows, _PERIOD_NOTE_EN, _PERIOD_NOTE_AR)
 
     ws2 = wb.create_sheet("AES-FIS annual ISIC")
@@ -314,10 +336,8 @@ def build_workbook(survey_type: str) -> bytes:
     detail_rows = _qes_detail_rows() if survey_type == "QES" else _fisq_detail_rows()
     _write_sheet(ws3, detail_rows, _DETAIL_NOTE_EN, _DETAIL_NOTE_AR)
 
+    _write_layout_sheet(wb.create_sheet("Upload layout (dummy data)"), survey_type)
+
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
-
-
-def IDENTIFICATION_ROWS_FOR(survey_type: str) -> list[tuple]:
-    return [("Identification", *row) for row in IDENTIFICATION_ROWS]

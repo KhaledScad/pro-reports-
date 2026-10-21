@@ -1,15 +1,14 @@
 """
 FISQ (Foreign Investment Quarter Survey) calculation engine — asset equation.
 
-Ported from the final effective JS logic (the v45 patch, the last one that
-touches FISQ formulas):
+Column names follow the 20-10 variable list (app/survey_layouts.py); the
+older names from the v45 JS port are still accepted after them:
 
-  Total Assets       = Current_Assets + Non_Current_Assets
-  Total Liabilities  = Current_Liabilities + Non_Current_Liabilities
+  Total Assets       = Total_of_Current_Assets + Total_of_Non-Current_Assets
+  Total Liabilities  = Total_of_Current_Liabilities + Total_of_Long-Term_Liabilities
   Calculated Equity  = Total Assets - Total Liabilities
-  Equation Diff      = Calculated Equity - Equity_In_Form
-  Equity Details     = Equity_7_1 + ... + Equity_7_6
-  7.2+7.3 check      = (Equity_7_2 + Equity_7_3) vs Equity_In_Form
+  Equation Diff      = Calculated Equity - Total_Equity (equity in form)
+  7.2+7.3 check      = (7.2_Paid-up_Capital_Stock + 7.3_Other_Equity) vs Total_Equity
 """
 from __future__ import annotations
 
@@ -43,20 +42,26 @@ EQUITY_IN_FORM_BEGIN = ["Equity_In_Form_Begining_Of_period", "Equity_In_Form_Beg
 EQUITY_IN_FORM_END = ["Equity_In_Form_End_of_period", "Equity_Form_End_of_period", "Form_Equity_End_of_period"]
 
 # Primary per-quarter lookups (used by the main "Asset equation comparison"
-# and "Equity details" tables): prefer the End-of-period column, then fall
-# back to the old plain column name for files uploaded before the begin/end
-# split existed.
-CURRENT_ASSETS = CURRENT_ASSETS_END + ["Current_Assets"]
-NON_CURRENT_ASSETS = NON_CURRENT_ASSETS_END + ["Non_Current_Assets"]
+# and "Equity details" tables): the 20-10 variable names first, then the
+# End-of-period column, then the old plain column name.
+CURRENT_ASSETS = ["Total_of_Current_Assets"] + CURRENT_ASSETS_END + ["Current_Assets"]
+NON_CURRENT_ASSETS = ["Total_of_Non_Current_Assets"] + NON_CURRENT_ASSETS_END + ["Non_Current_Assets"]
 TOTAL_ASSETS_FILE = TOTAL_ASSETS_FILE_END + ["Total_Assets"]
-CURRENT_LIAB = CURRENT_LIAB_END + ["Current_Liabilities"]
-NON_CURRENT_LIAB = NON_CURRENT_LIAB_END + ["Non_Current_Liabilities", "Total_of_Long_Term_Liabilities",
-                                            "Long_Term_Liabilities", "NonCurrent_Liabilities"]
+CURRENT_LIAB = ["Total_of_Current_Liabilities"] + CURRENT_LIAB_END + ["Current_Liabilities"]
+NON_CURRENT_LIAB = ["Total_of_Long_Term_Liabilities"] + NON_CURRENT_LIAB_END + [
+    "Non_Current_Liabilities", "Long_Term_Liabilities", "NonCurrent_Liabilities"]
 TOTAL_LIAB_FILE = TOTAL_LIAB_FILE_END + ["Total_Liabilities"]
-EQUITY_IN_FORM = EQUITY_IN_FORM_END + ["Equity_In_Form", "Equity_Form", "Form_Equity"]
+EQUITY_IN_FORM = ["Total_Equity"] + EQUITY_IN_FORM_END + ["Equity_In_Form", "Equity_Form", "Form_Equity"]
 EQUITY_CALCULATED_FILE = ["Equity_Calculated", "Calculated_Equity"]
 DIFFERENCE_FILE = ["Difference_In_Equation"]
-EQUITY_DETAIL_KEYS = [f"Equity_7_{i}" for i in range(1, 7)]
+PAID_UP_CAPITAL = ["7.2_Paid-up_Capital_Stock", "Equity_7_2"]
+OTHER_EQUITY = ["7.3_Other_Equity", "Equity_7_3"]
+
+# A quarter's reported figures (not its names, codes or statuses) — how the
+# search tells which Frame ID reported a quarter when one licence number has
+# several Frame IDs.
+FIGURES = [CURRENT_ASSETS, NON_CURRENT_ASSETS, CURRENT_LIAB, NON_CURRENT_LIAB,
+           EQUITY_IN_FORM, PAID_UP_CAPITAL, OTHER_EQUITY]
 
 
 def calc_fisq_period(row: dict, period: str) -> dict:
@@ -75,11 +80,9 @@ def calc_fisq_period(row: dict, period: str) -> dict:
     file_equity = num_val(row, period, EQUITY_CALCULATED_FILE)
     equation_difference = calculated_equity - equity_in_form
 
-    e = [num_val(row, period, [k]) for k in EQUITY_DETAIL_KEYS]
-    equity_details_total = sum(e)
-    equity_details_difference = equity_details_total - equity_in_form
-
-    equity_723_total = e[1] + e[2]  # Equity_7_2 + Equity_7_3
+    paid_up_capital = num_val(row, period, PAID_UP_CAPITAL)
+    other_equity = num_val(row, period, OTHER_EQUITY)
+    equity_723_total = paid_up_capital + other_equity
     equity_723_difference = equity_723_total - equity_in_form
 
     eq_ok = abs(equation_difference) < 0.01
@@ -99,10 +102,7 @@ def calc_fisq_period(row: dict, period: str) -> dict:
         "file_equity": file_equity,
         "equity_in_form": equity_in_form,
         "equation_difference": equation_difference,
-        "equity_7_1": e[0], "equity_7_2": e[1], "equity_7_3": e[2],
-        "equity_7_4": e[3], "equity_7_5": e[4], "equity_7_6": e[5],
-        "equity_details_total": equity_details_total,
-        "equity_details_difference": equity_details_difference,
+        "equity_7_2": paid_up_capital, "equity_7_3": other_equity,
         "equity_723_total": equity_723_total,
         "equity_723_difference": equity_723_difference,
         "equity_723_status": "Correct" if e723_ok else "Flag / review",
@@ -143,10 +143,16 @@ def _calc_asset_equation(row: dict, period: str, current_assets_keys, non_curren
     }
 
 
-def calc_fisq_period_movement(row: dict, period: str) -> dict:
+def calc_fisq_period_movement(row: dict, period: str) -> dict | None:
     """Beginning-of-quarter vs end-of-quarter asset-equation position for the
     same quarter (بداية المدة / نهاية المدة) — the within-quarter movement,
-    as distinct from the quarter-over-quarter comparison in calc_fisq()."""
+    as distinct from the quarter-over-quarter comparison in calc_fisq().
+    None when the file has no beginning-of-period totals for the quarter (the
+    20-10 layout carries only the closing totals)."""
+    begin_keys = (CURRENT_ASSETS_BEGIN, NON_CURRENT_ASSETS_BEGIN, CURRENT_LIAB_BEGIN,
+                  NON_CURRENT_LIAB_BEGIN, EQUITY_IN_FORM_BEGIN)
+    if not any(find_key(row, period, keys) for keys in begin_keys):
+        return None
     begin = _calc_asset_equation(row, period, CURRENT_ASSETS_BEGIN, NON_CURRENT_ASSETS_BEGIN,
                                   TOTAL_ASSETS_FILE_BEGIN, CURRENT_LIAB_BEGIN, NON_CURRENT_LIAB_BEGIN,
                                   TOTAL_LIAB_FILE_BEGIN, EQUITY_IN_FORM_BEGIN)
@@ -164,88 +170,65 @@ def calc_fisq_period_movement(row: dict, period: str) -> dict:
 
 
 # ---------------------------------------------------------------------
-# Detail line items from the real SCAD survey form's DB column codes
-# (form sections Q3-Q7). Display-only: current_assets / non_current_assets
-# / current_liabilities / non_current_liabilities / equity_in_form above
-# keep being read exactly as before — these components are not summed
-# into them. Component "C" for each Q3/Q4/Q5/Q6 group is referenced by the
-# source form's own SUM formula but its column name isn't documented
-# anywhere, so it's guessed by the same A/B naming pattern; it simply
-# won't show if that guess is wrong. Q5/Q6 components A/B also try an
-# alternate spelling without the underscore, since the source
-# documentation itself uses both ("CURR_LIAB_Q5_A" in the SUM formula,
-# "CURR_LIAB_Q5A" as the column's own row).
+# Survey-form items from the 20-10 variable list (form sections Q3-Q6),
+# each with the same item's previous-period value (the *_PREV column).
+# Display-only: the totals above (Total_of_Current_Assets, ...) are read
+# from their own columns — these items are only part of each total, so
+# they are never summed into it. The 20-10 layout carries them for the two
+# latest quarters only; the upload step gives them their quarter prefix.
 # ---------------------------------------------------------------------
 COMPONENT_GROUPS = [
     {
-        "title_en": "Current assets — components (form Q3)",
-        "title_ar": "الأصول المتداولة — المكونات (نموذج Q3)",
+        "title_en": "Current assets — form items (Q3)",
+        "title_ar": "الأصول المتداولة — بنود الاستمارة (Q3)",
         "components": [
-            ("Component A", "المكوّن أ", ["CURR_AS_Q3_A"]),
-            ("Component B", "المكوّن ب", ["CURR_AS_Q3_B"]),
-            ("Component C", "المكوّن ج", ["CURR_AS_Q3_C"]),
+            ("Item D", "البند D", ["CURR_AS_Q3_D"]),
+            ("Item E", "البند E", ["CURR_AS_Q3_E"]),
         ],
     },
     {
-        "title_en": "Non-current assets — components (form Q4)",
-        "title_ar": "الأصول غير المتداولة — المكونات (نموذج Q4)",
+        "title_en": "Non-current assets — form items (Q4)",
+        "title_ar": "الأصول غير المتداولة — بنود الاستمارة (Q4)",
         "components": [
-            ("Component A", "المكوّن أ", ["NCURR_AS_Q4_A"]),
-            ("Component B", "المكوّن ب", ["NCURR_AS_Q4_B"]),
-            ("Component C", "المكوّن ج", ["NCURR_AS_Q4_C"]),
+            ("Item D", "البند D", ["NCURR_AS_Q4_D"]),
+            ("Item E", "البند E", ["NCURR_AS_Q4_E"]),
         ],
     },
     {
-        "title_en": "Current liabilities — components (form Q5)",
-        "title_ar": "المطلوبات المتداولة — المكونات (نموذج Q5)",
+        "title_en": "Current liabilities — form items (Q5)",
+        "title_ar": "المطلوبات المتداولة — بنود الاستمارة (Q5)",
         "components": [
-            ("Component A", "المكوّن أ", ["CURR_LIAB_Q5_A", "CURR_LIAB_Q5A"]),
-            ("Component B", "المكوّن ب", ["CURR_LIAB_Q5_B", "CURR_LIAB_Q5B"]),
-            ("Component C", "المكوّن ج", ["CURR_LIAB_Q5_C", "CURR_LIAB_Q5C"]),
+            ("Item C", "البند C", ["CURR_LIAB_Q5C"]),
+            ("Item D", "البند D", ["CURR_LIAB_Q5D"]),
         ],
     },
     {
-        "title_en": "Non-current (long-term) liabilities — components (form Q6)",
-        "title_ar": "المطلوبات غير المتداولة (طويلة الأجل) — المكونات (نموذج Q6)",
+        "title_en": "Long-term liabilities — form items (Q6)",
+        "title_ar": "المطلوبات طويلة الأجل — بنود الاستمارة (Q6)",
         "components": [
-            ("Component A", "المكوّن أ", ["LNG_LIAB_Q6_A", "LNG_LIAB_Q6A"]),
-            ("Component B", "المكوّن ب", ["LNG_LIAB_Q6_B", "LNG_LIAB_Q6B"]),
-            ("Component C", "المكوّن ج", ["LNG_LIAB_Q6_C", "LNG_LIAB_Q6C"]),
+            ("Item C", "البند C", ["LNG_LIAB_Q6C"]),
+            ("Item D", "البند D", ["LNG_LIAB_Q6D"]),
         ],
     },
-]
-
-EQUITY_FORM_DETAIL = [
-    ("Equity 7.1", "حقوق الملكية 7.1", ["EQ_Q7_7_1"]),
-    ("Equity 7.2 — component D", "حقوق الملكية 7.2 — المكوّن D", ["EQ_Q7_D"]),
-    ("Equity 7.2 — component E", "حقوق الملكية 7.2 — المكوّن E", ["EQ_Q7_E"]),
-    ("Equity 7.3 (A)", "حقوق الملكية 7.3 (أ)", ["EQ_Q7_7_3_A_VAL"]),
-    ("Equity 7.3 (B)", "حقوق الملكية 7.3 (ب)", ["EQ_Q7_7_3_B_VAL"]),
 ]
 
 
 def fisq_component_groups(row: dict, period: str, lang: str = "en") -> list[dict]:
-    """Granular survey-form component breakdown for display alongside the
-    main asset-equation calculation — read-only, not part of any formula
-    above."""
+    """Survey-form item breakdown for display alongside the main
+    asset-equation calculation — read-only, not part of any formula above.
+    Each item carries its previous-period value as `prev` (None if absent)."""
     groups = []
     for g in COMPONENT_GROUPS:
         items = []
         for label_en, label_ar, codes in g["components"]:
             if find_key(row, period, codes) is None:
                 continue
-            items.append({"label": label_ar if lang == "ar" else label_en, "value": num_val(row, period, codes)})
+            prev_codes = [f"{c}_PREV" for c in codes]
+            prev = num_val(row, period, prev_codes) if find_key(row, period, prev_codes) else None
+            items.append({"label": label_ar if lang == "ar" else label_en,
+                          "value": num_val(row, period, codes), "prev": prev})
         if items:
             groups.append({"title": g["title_ar"] if lang == "ar" else g["title_en"], "rows": items})
-
-    eq_items = []
-    for label_en, label_ar, codes in EQUITY_FORM_DETAIL:
-        if find_key(row, period, codes) is None:
-            continue
-        eq_items.append({"label": label_ar if lang == "ar" else label_en, "value": num_val(row, period, codes)})
-    if eq_items:
-        title = "تفاصيل حقوق الملكية (نموذج Q7)" if lang == "ar" else "Equity details (form Q7)"
-        groups.append({"title": title, "items": eq_items})
     return groups
 
 

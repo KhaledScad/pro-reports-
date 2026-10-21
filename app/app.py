@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import threading
 from pathlib import Path
+from urllib.parse import quote
 
 from fastapi import FastAPI, Request, Form, UploadFile, File, Query
 from fastapi.responses import RedirectResponse, HTMLResponse, StreamingResponse
@@ -15,9 +17,10 @@ from . import tempstore
 from . import i18n
 from . import variable_reference
 from .logs_export import build_logs_workbook
-from .calc_common import fmt, pct, period_label, get_periods, record_meta, text_val, annual_isic_series
-from .calculations_qes import calc_qes, qes_detail_groups
-from .calculations_fisq import calc_fisq, calc_fisq_period_movement, fisq_component_groups
+from .calc_common import (fmt, pct, period_label, get_periods, key_period, record_meta, text_val, to_num, clean,
+                          latest_text, annual_isic_series)
+from .calculations_qes import calc_qes, qes_detail_groups, FIGURES as QES_FIGURES
+from .calculations_fisq import calc_fisq, calc_fisq_period_movement, fisq_component_groups, FIGURES as FISQ_FIGURES
 
 BASE_DIR = Path(__file__).resolve().parent
 db.init_db()
@@ -27,17 +30,35 @@ app.add_middleware(SessionMiddleware, secret_key=db.get_or_create_session_secret
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 
 
+@app.middleware("http")
+async def no_store_pages(request: Request, call_next):
+    # Pages are per-user; without this the browser can show a previous
+    # user's cached page (Back button / restored tabs) after switching accounts.
+    response = await call_next(request)
+    if not request.url.path.startswith("/static/"):
+        response.headers["Cache-Control"] = "no-store"
+    elif "v" in request.query_params:
+        # ?v=static_version changes on every deploy, so the browser can keep
+        # the file instead of re-checking it (a slow network-share read) on every page.
+        response.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return response
+
+
 @app.on_event("shutdown")
 def _flush_local_db_to_durable_storage():
     db.sync_now()
 
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
+# Templates change only on a deploy, which restarts the server. Without this
+# Jinja re-checks every template file on every page — tens of ms per file
+# when the app runs from a network share.
+templates.env.auto_reload = False
 templates.env.filters["fmt"] = fmt
 templates.env.filters["pct"] = pct
 templates.env.filters["period_label"] = period_label
-# Cache-bust /static assets on every server restart (i.e. every deploy) so
+# Cache-bust /static assets whenever any of them changes (i.e. every deploy) so
 # browsers can't keep serving a stale style.css/charts.js after an update.
-templates.env.globals["static_version"] = str(int((BASE_DIR / "static" / "style.css").stat().st_mtime))
+templates.env.globals["static_version"] = str(int(max(p.stat().st_mtime for p in (BASE_DIR / "static").iterdir() if p.is_file())))
 
 
 def trend_cls(prev_val, curr_val) -> str:
@@ -59,6 +80,8 @@ SURVEY_LABELS = {
     "FISQ": "Foreign Investment Quarter Survey",
 }
 CALCULATED_TYPES = {"QES", "FISQ"}
+USER_ROLES = ("ADMIN", "SUPERVISOR", "USER")
+REPORTED_FIGURES = {"QES": QES_FIGURES, "FISQ": FISQ_FIGURES}
 
 # Variables selectable in the compare-page trend charts: (data key, i18n label key).
 CHART_VARIABLES = {
@@ -66,8 +89,8 @@ CHART_VARIABLES = {
         ("total_revenue", "revenue"), ("total_expenses", "expenditure"),
         ("gross_output", "gross_output"), ("intermediate_consumption", "intermediate_consumption"),
         ("added_value", "added_value"), ("profit", "profit"),
-        ("employees", "employees"), ("average_salary", "average_salary"),
-        ("employee_salary", "compensation"),
+        ("employees", "employees"),
+        ("employee_salary", "compensation"), ("average_salary", "average_salary"),
         ("begin_inventory", "inventory_start"), ("end_inventory", "inventory_end"),
         ("profit_pct", "profit_pct"), ("av_pct", "av_pct"), ("ic_pct", "ic_pct"),
     ],
@@ -135,10 +158,144 @@ def merged_row(records: list[dict]) -> dict:
     return merged
 
 
-def annual_isic_rows(source: str, frame_id: str) -> list[dict] | None:
-    """Last 3 years of {YYYY}_ISIC4 data for this Frame ID from an annual
-    ISIC source (AES/FIS) — None if nothing was ever uploaded for it."""
-    data = db.annual_isic_by_frame(source, frame_id)
+def frame_choices(visible: list[dict]) -> list[dict]:
+    """Every Frame ID in `visible` (the records this user is assigned to),
+    with its establishment name and licence number, for the Frame ID /
+    License Number search dropdowns."""
+    by_frame: dict[str, list[dict]] = {}
+    for r in visible:
+        by_frame.setdefault(r["frame_id"], []).append(r)
+    out = []
+    for fid in sorted(by_frame):
+        row = merged_row(by_frame[fid])
+        out.append({
+            "frame_id": fid,
+            "name": latest_text(row, ["ESTABLISHMENT_NAME"]),
+            "license": latest_text(row, ["Licence_Number", "License_Number"]),
+        })
+    return out
+
+
+def license_choices(frame_options: list[dict]) -> list[dict]:
+    """Distinct licence numbers among `frame_options`, each with the Frame
+    IDs it belongs to, for the License Number search dropdown."""
+    by_license: dict[str, list[dict]] = {}
+    for f in frame_options:
+        if f["license"]:
+            by_license.setdefault(f["license"], []).append(f)
+    return [{"license": lic, "frames": frames} for lic, frames in sorted(by_license.items())]
+
+
+templates.env.globals["license_choices"] = license_choices
+
+
+@app.on_event("startup")
+def _warm_up_in_background():
+    """Do the one-off work of the first page views right after a restart —
+    compile every template (read over the network share) and load each
+    survey's records and column lookups — so no user's first click waits on it."""
+    def warm():
+        for name in templates.env.list_templates():
+            templates.get_template(name)
+        for survey_type in db.SURVEY_TYPES:
+            frame_choices(db.all_records(survey_type))
+
+    threading.Thread(target=warm, daemon=True, name="warm-up").start()
+
+
+def resolve_frame(choices: list[dict], frame_id: str, license: str) -> str:
+    """The Frame ID to open: the Frame ID dropdown wins; otherwise the first
+    one with the licence number picked — its page covers every Frame ID that
+    shares the licence anyway (licence_group)."""
+    frame_id, license = frame_id.strip(), license.strip()
+    if frame_id or not license:
+        return frame_id
+    hit = next((c for c in choices if c["license"].strip().lower() == license.lower()), None)
+    return hit["frame_id"] if hit else license  # unknown: fall through to the normal not-found / access-denied path
+
+
+def licence_group(frame_options: list[dict], frame_id: str) -> list[str]:
+    """frame_id, then every other Frame ID this user can open that has the
+    same licence number — a search for one Frame ID shows them all."""
+    target = frame_id.strip().lower()
+    current = next((f for f in frame_options if f["frame_id"].strip().lower() == target), None)
+    if not current:
+        return [frame_id]
+    license = current["license"].strip().lower()
+    return [current["frame_id"]] + [f["frame_id"] for f in frame_options
+                                    if license and f is not current and f["license"].strip().lower() == license]
+
+
+def figure_score(row: dict, period: str, figures: list[list[str]]) -> tuple[int, int]:
+    """How fully `row` reported `period`: (non-zero figures, non-empty figures)."""
+    values = [text_val(row, period, cols) for cols in figures]
+    return sum(1 for v in values if to_num(v)), sum(1 for v in values if v)
+
+
+def licence_row(visible: list[dict], frame_ids: list[str], figures: list[list[str]]) -> tuple[dict, dict]:
+    """One row for every Frame ID in `frame_ids` (from licence_group). The
+    first supplies the plain columns (FRAME_ID, ESTABLISHMENT_NAME, ...); each
+    quarter is taken whole from the Frame ID that reported the most figures
+    for it — ties go to the earlier one — so two submissions are never mixed
+    within one quarter. Returns (row, sources): sources maps each quarter, in
+    time order, to {"frame_id": where it came from, "also": other Frame IDs
+    that reported figures for it too}. Both are empty if none is visible."""
+    rows = {}
+    for fid in frame_ids:
+        records = [r for r in visible if r["frame_id"].strip().lower() == fid.strip().lower()]
+        if records:
+            rows[fid] = merged_row(records)
+    if not rows:
+        return {}, {}
+    base = next(iter(rows))
+    row = dict(rows[base])
+    row_periods = {fid: set(get_periods(r)) for fid, r in rows.items()}
+    sources = {}
+    for p in set().union(*row_periods.values()):
+        scores = {fid: figure_score(r, p, figures) for fid, r in rows.items() if p in row_periods[fid]}
+        owner = max(scores, key=scores.get)  # first of equals wins
+        sources[p] = {"frame_id": owner, "also": [f for f, s in scores.items() if f != owner and s[1]]}
+        if owner != base:
+            for k in [k for k in row if key_period(k) == p]:
+                del row[k]
+            row.update((k, v) for k, v in rows[owner].items() if key_period(k) == p)
+    return row, {p: sources[p] for p in get_periods(row)}
+
+
+def add_record_details(meta: dict, frame_options: list[dict], frame_ids: list[str], sources: dict) -> None:
+    """Fill in the Record card's licence number, every Frame ID this user can
+    open that shares it (with the quarters each one supplied), and the
+    supervisor's name from the account list."""
+    current = next((f for f in frame_options if f["frame_id"] == frame_ids[0]), None)
+    meta["license"] = current["license"] if current else ""
+    meta["license_frames"] = [{"frame_id": fid, "periods": [p for p, s in sources.items() if s["frame_id"] == fid]}
+                              for fid in frame_ids]
+    meta["supervisor_name"] = auth.account_name(meta.get("supervisor_username", ""))
+
+
+def chronological(selected: list[str], available: list[str]) -> list[str]:
+    """Selected periods in time order, whatever order the browser sent them."""
+    return [p for p in available if p in selected]
+
+
+def current_period(survey_type: str) -> str | None:
+    """The newest quarter (Q#_YYYY) in `survey_type`'s data, or None if it
+    has no quarter columns."""
+    columns = dict.fromkeys(k for r in db.all_records(survey_type) for k in r["data"])
+    periods = get_periods(columns)
+    return periods[-1] if periods else None
+
+
+def annual_isic_rows(source: str, frame_ids: list[str]) -> list[dict] | None:
+    """Last 3 years of {YYYY}_ISIC4 data for these Frame IDs (one licence's,
+    from licence_group) from an annual ISIC source (AES/FIS): each year from
+    the first Frame ID that has a value for it. None if nothing was ever
+    uploaded for any of them."""
+    data: dict = {}
+    for fid in frame_ids:
+        for k, v in db.annual_isic_by_frame(source, fid).items():
+            if not clean(data.get(k)):
+                data[k] = v
     if not data:
         return None
     series = annual_isic_series(data)[-3:]
@@ -184,7 +341,9 @@ def logout(request: Request):
     if user:
         db.add_log(user["username"], user["authorization"], "LOGOUT", "", client_ip(request))
     request.session.clear()
-    return RedirectResponse("/login", status_code=303)
+    response = RedirectResponse("/login", status_code=303)
+    response.headers["Clear-Site-Data"] = '"cache"'
+    return response
 
 
 @app.get("/dashboard", response_class=HTMLResponse)
@@ -192,14 +351,17 @@ def dashboard(request: Request):
     user = require_login(request)
     if not user:
         return RedirectResponse("/login")
-    access = [
-        {
+    # Only the current quarter's assignments: a Frame ID someone else has
+    # taken over since an earlier quarter is no longer listed as yours.
+    access = []
+    for t in db.SURVEY_TYPES:
+        period = current_period(t)
+        access.append({
             "type": t,
             "label": SURVEY_LABELS[t],
-            "frame_ids": sorted({r["frame_id"] for r in auth.visible_records(user, t)}),
-        }
-        for t in db.SURVEY_TYPES
-    ]
+            "period": period,
+            "frame_ids": sorted({r["frame_id"] for r in auth.visible_records(user, t, period)}),
+        })
     db.add_log(user["username"], user["authorization"], "DASHBOARD_VIEW", "", client_ip(request))
     return render(request, "dashboard.html", access=access)
 
@@ -225,9 +387,78 @@ def admin_page(request: Request):
     counts = {t: db.record_count(t) for t in db.SURVEY_TYPES}
     annual_isic_counts = {s: db.record_count(s) for s in db.ANNUAL_ISIC_SOURCES}
     db.add_log(user["username"], user["authorization"], "ADMIN_PANEL_VIEW", "", client_ip(request))
+    account_users = sorted(
+        (_public_user(u) for u in db.list_users()),
+        key=lambda account: (account["username"] or "").lower(),
+    )
     return render(request, "admin.html", counts=counts, annual_isic_counts=annual_isic_counts,
-                  users=db.list_users(), logs=db.list_logs(200),
-                  message=request.query_params.get("message"), error=request.query_params.get("error"))
+                  users=account_users, user_roles=USER_ROLES, logs=db.list_logs(200),
+                  message=request.query_params.get("message"), error=request.query_params.get("error"),
+                  section=request.query_params.get("section", ""))
+
+
+def _public_user(user: dict | None) -> dict | None:
+    if not user:
+        return None
+    return {
+        "username": user.get("username") or "",
+        "authorization": str(user.get("authorization") or "USER").upper(),
+        "name": user.get("name") or "",
+        "job": user.get("job") or "",
+        "location": user.get("location") or "",
+    }
+
+
+@app.post("/admin/users")
+def admin_save_user(
+    request: Request,
+    username: str = Form(""),
+    password: str = Form(""),
+    authorization: str = Form(""),
+    name: str = Form(""),
+    job: str = Form(""),
+    location: str = Form(""),
+    original_username: str = Form(""),
+):
+    """Create one account, or update the account named by original_username."""
+    actor = require_login(request)
+    if not actor or not auth.is_admin(actor):
+        if actor:
+            db.add_log(actor["username"], actor["authorization"], "ADMIN_ACCESS_DENIED", "/admin/users", client_ip(request))
+        return RedirectResponse("/dashboard")
+    username = username.strip()
+    original = original_username.strip()
+    role = authorization.strip().upper()
+    password = password.strip()
+    if not username:
+        return RedirectResponse(f"/admin?section=users&error={quote('Username is required.')}#users", status_code=303)
+    if role not in USER_ROLES:
+        return RedirectResponse(
+            f"/admin?section=users&error={quote('Authorization must be ADMIN, SUPERVISOR, or USER.')}#users",
+            status_code=303,
+        )
+    try:
+        action = db.save_user(
+            {
+                "username": username,
+                "password": password,
+                "authorization": role,
+                "name": name.strip() or username,
+                "job": job.strip(),
+                "location": location.strip(),
+            },
+            original_username=original,
+        )
+    except ValueError as exc:
+        return RedirectResponse(f"/admin?section=users&error={quote(str(exc))}#users", status_code=303)
+    saved = db.get_user(username)
+    if saved and actor["username"].lower() == (original or username).lower():
+        auth.set_session_user(request, saved)
+    db.add_log(actor["username"], actor["authorization"], action, username, client_ip(request))
+    if saved and actor["username"].lower() == (original or username).lower() and not auth.is_admin(saved):
+        return RedirectResponse("/dashboard", status_code=303)
+    message = f"User {username} created." if action == "USER_CREATED" else f"User {username} updated."
+    return RedirectResponse(f"/admin?section=users&message={quote(message)}#users", status_code=303)
 
 
 @app.get("/admin/logs/export.xlsx")
@@ -316,12 +547,13 @@ def upload_confirm(request: Request, kind: str, token: str = Form(...), sheet: s
             db.add_log(user["username"], user["authorization"], "AUTH_FILE_LOADED", f"{filename} / sheet: {sheet}", client_ip(request))
             msg = f"Account+database+loaded+({len(users)}+users)"
         else:
-            rows = excel_utils.rows_for_survey(content, sheet)
+            rows, notes = excel_utils.rows_for_survey(content, sheet)
             if not rows:
                 raise ValueError("No records were imported. Make sure the sheet has a Frame ID / FRAME_ID column.")
             count = db.replace_records(kind, rows, filename)
-            db.add_log(user["username"], user["authorization"], f"{kind}_DATA_UPLOADED", f"{filename} / sheet: {sheet} / records: {count}", client_ip(request))
-            msg = f"{kind}:+{count}+records+loaded"
+            db.add_log(user["username"], user["authorization"], f"{kind}_DATA_UPLOADED",
+                       f"{filename} / sheet: {sheet} / records: {count}" + "".join(f" / {n}" for n in notes), client_ip(request))
+            msg = quote(f"{kind}: {count} records loaded" + "".join(f"; {n}" for n in notes))
         return RedirectResponse(f"/admin?message={msg}", status_code=303)
     except Exception as exc:  # noqa: BLE001
         return RedirectResponse(f"/admin?error={exc}", status_code=303)
@@ -332,7 +564,7 @@ def upload_confirm(request: Request, kind: str, token: str = Form(...), sheet: s
 # ---------------------------------------------------------------- survey ---
 
 @app.get("/survey/{survey_type}", response_class=HTMLResponse)
-def survey_search(request: Request, survey_type: str, frame_id: str = "",
+def survey_search(request: Request, survey_type: str, frame_id: str = "", license: str = "",
                    mode: str = "compare", quarter: str = "", quarters: list[str] = Query(default=[])):
     user = require_login(request)
     if not user:
@@ -342,7 +574,9 @@ def survey_search(request: Request, survey_type: str, frame_id: str = "",
         return RedirectResponse("/dashboard")
     lang = get_lang(request)
 
-    frame_options = sorted({r["frame_id"] for r in auth.visible_records(user, survey_type)})
+    visible = auth.visible_records(user, survey_type)
+    frame_options = frame_choices(visible)
+    frame_id = resolve_frame(frame_options, frame_id, license)
 
     result = None
     error = None
@@ -350,20 +584,22 @@ def survey_search(request: Request, survey_type: str, frame_id: str = "",
     periods = []
     meta = None
     raw_fields = None
-    frame_id = frame_id.strip()
+    period_sources = {}
 
     if frame_id:
-        records = [r for r in auth.visible_records(user, survey_type) if r["frame_id"].strip().lower() == frame_id.lower()]
-        if not records:
+        frame_ids = licence_group(frame_options, frame_id)
+        row, sources = licence_row(visible, frame_ids, REPORTED_FIGURES.get(survey_type, []))
+        if not row:
             error = i18n.t("not_found_or_access", lang)
             db.add_log(user["username"], user["authorization"], "RECORD_ACCESS_DENIED", f"{survey_type} / {frame_id}", client_ip(request))
         else:
-            row = merged_row(records)
+            if len(frame_ids) > 1:
+                period_sources = sources
             periods = get_periods(row)
             if survey_type in CALCULATED_TYPES:
                 if mode == "compare":
                     # Default: current quarter + previous 3 (last 4 available periods).
-                    selected = [p for p in quarters if p in periods] or periods[-LAST_N_PERIODS:]
+                    selected = chronological(quarters, periods) or periods[-LAST_N_PERIODS:]
                 else:
                     selected = [quarter] if quarter in periods else (periods[-1:] if periods else [])
                 calc_fn = calc_qes if survey_type == "QES" else calc_fisq
@@ -372,10 +608,11 @@ def survey_search(request: Request, survey_type: str, frame_id: str = "",
                 if not periods:
                     error = "No quarter/year period was detected in the uploaded columns for this record."
                 else:
-                    meta = record_meta(row, result["first"]["period"] if result and result.get("first") else periods[-1], lang)
+                    meta = record_meta(row, lang)
+                    add_record_details(meta, frame_options, frame_ids, sources)
             else:
                 raw_fields = {k: v for k, v in row.items() if not str(k).startswith("__")}
-            db.add_log(user["username"], user["authorization"], "SURVEY_FRAME_VIEW", f"{survey_type} / {frame_id}", client_ip(request))
+            db.add_log(user["username"], user["authorization"], "SURVEY_FRAME_VIEW", f"{survey_type} / {' + '.join(frame_ids)}", client_ip(request))
 
     # Beginning-of-quarter vs end-of-quarter asset equation, per calculated
     # quarter (FISQ only) — بداية المدة و نهاية المدة.
@@ -393,6 +630,7 @@ def survey_search(request: Request, survey_type: str, frame_id: str = "",
 
     template = f"survey_{survey_type.lower()}.html" if survey_type in CALCULATED_TYPES else "survey_generic.html"
     return render(request, template, survey_type=survey_type, frame_id=frame_id, mode=mode,
+                  license=license.strip(), period_sources=period_sources,
                   quarter=quarter, quarters=quarters, frame_options=frame_options, periods=periods,
                   result=result, error=error, row=row, meta=meta, raw_fields=raw_fields, movement_map=movement_map,
                   detail_map=detail_map)
@@ -401,7 +639,8 @@ def survey_search(request: Request, survey_type: str, frame_id: str = "",
 # ------------------------------------------------------------- comparison ---
 
 @app.get("/compare/{survey_type}", response_class=HTMLResponse)
-def compare_view(request: Request, survey_type: str, frame_id: str = "", periods: list[str] = Query(default=[])):
+def compare_view(request: Request, survey_type: str, frame_id: str = "", license: str = "",
+                 periods: list[str] = Query(default=[])):
     user = require_login(request)
     if not user:
         return RedirectResponse("/login")
@@ -410,30 +649,36 @@ def compare_view(request: Request, survey_type: str, frame_id: str = "", periods
         return RedirectResponse("/dashboard")
     lang = get_lang(request)
 
-    frame_options = sorted({r["frame_id"] for r in auth.visible_records(user, survey_type)})
-    frame_id = frame_id.strip()
+    visible = auth.visible_records(user, survey_type)
+    frame_options = frame_choices(visible)
+    frame_id = resolve_frame(frame_options, frame_id, license)
     error = None
     row = None
     all_periods = []
     calcs = []
     meta = None
+    frame_ids = []
+    period_sources = {}
 
     if frame_id:
-        records = [r for r in auth.visible_records(user, survey_type) if r["frame_id"].strip().lower() == frame_id.lower()]
-        if not records:
+        frame_ids = licence_group(frame_options, frame_id)
+        row, sources = licence_row(visible, frame_ids, REPORTED_FIGURES[survey_type])
+        if not row:
             error = i18n.t("not_found_or_access", lang)
             db.add_log(user["username"], user["authorization"], "RECORD_ACCESS_DENIED", f"{survey_type} / {frame_id}", client_ip(request))
         else:
-            row = merged_row(records)
+            if len(frame_ids) > 1:
+                period_sources = sources
             all_periods = get_periods(row)
             # Default: current quarter + previous 3 (last 4 available periods).
-            chosen = [p for p in periods if p in all_periods] or all_periods[-LAST_N_PERIODS:]
+            chosen = chronological(periods, all_periods) or all_periods[-LAST_N_PERIODS:]
             calc_period_fn = (lambda p: calc_qes(row, [p], "single", lang)["first"]) if survey_type == "QES" else \
                               (lambda p: calc_fisq(row, [p], "single")["first"])
             calcs = [calc_period_fn(p) for p in chosen]
             if calcs:
-                meta = record_meta(row, calcs[0]["period"], lang)
-            db.add_log(user["username"], user["authorization"], "PROJECT_COMPARISON_VIEW", f"{survey_type} / {frame_id}", client_ip(request))
+                meta = record_meta(row, lang)
+                add_record_details(meta, frame_options, frame_ids, sources)
+            db.add_log(user["username"], user["authorization"], "PROJECT_COMPARISON_VIEW", f"{survey_type} / {' + '.join(frame_ids)}", client_ip(request))
 
     # Inventory continuity check (QES only): start should equal previous end.
     inventory_rows = []
@@ -465,7 +710,7 @@ def compare_view(request: Request, survey_type: str, frame_id: str = "", periods
     # quarter (FISQ only) — بداية المدة و نهاية المدة.
     movement_rows = []
     if survey_type == "FISQ" and calcs:
-        movement_rows = [calc_fisq_period_movement(row, c["period"]) for c in calcs]
+        movement_rows = [mv for c in calcs if (mv := calc_fisq_period_movement(row, c["period"]))]
 
     # ±30% quarter-over-quarter movement flag (FISQ only): flags any of the
     # 5 tracked totals that moved more than 30% since the previous selected
@@ -495,10 +740,10 @@ def compare_view(request: Request, survey_type: str, frame_id: str = "", periods
     elif survey_type == "FISQ" and calcs:
         detail_rows = [{"period": c["period"], "groups": fisq_component_groups(row, c["period"], lang)} for c in calcs]
 
-    # Annual ISIC cross-check against the same Frame ID's annual filing,
+    # Annual ISIC cross-check against the same Frame IDs' annual filing,
     # last 3 years — QES compares against AES, FISQ compares against FIS.
-    aes_isic_rows = annual_isic_rows("AES", frame_id) if (survey_type == "QES" and frame_id) else None
-    fis_isic_rows = annual_isic_rows("FIS", frame_id) if (survey_type == "FISQ" and frame_id) else None
+    aes_isic_rows = annual_isic_rows("AES", frame_ids) if (survey_type == "QES" and frame_id) else None
+    fis_isic_rows = annual_isic_rows("FIS", frame_ids) if (survey_type == "FISQ" and frame_id) else None
 
     chart = None
     if calcs:
@@ -511,8 +756,9 @@ def compare_view(request: Request, survey_type: str, frame_id: str = "", periods
         }
 
     template = f"compare_{survey_type.lower()}.html"
-    return render(request, template, survey_type=survey_type, frame_id=frame_id, frame_options=frame_options,
-                  all_periods=all_periods, selected_periods=[c["period"] for c in calcs], calcs=calcs,
+    return render(request, template, survey_type=survey_type, frame_id=frame_id,
+                  license=license.strip(), period_sources=period_sources,
+                  frame_options=frame_options, all_periods=all_periods, selected_periods=[c["period"] for c in calcs], calcs=calcs,
                   inventory_rows=inventory_rows, employee_rows=employee_rows, isic_rows=isic_rows,
                   movement_rows=movement_rows, movement_flags=movement_flags, detail_rows=detail_rows,
                   aes_isic_rows=aes_isic_rows, fis_isic_rows=fis_isic_rows,

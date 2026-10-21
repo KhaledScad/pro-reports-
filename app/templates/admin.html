@@ -2,8 +2,10 @@
 {% block title %}{{ t('admin_panel') }} - {{ t('app_title') }}{% endblock %}
 {% block content %}
 <h2>{{ t('admin_panel') }}</h2>
+{% if section != 'users' %}
 {% if message %}<div class="notice ok">{{ message }}</div>{% endif %}
 {% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
+{% endif %}
 
 <div class="grid grid-2">
   <div class="card upload-card">
@@ -44,19 +46,125 @@
 </div>
 <p class="muted small">{{ t('annual_isic_upload_hint') }}</p>
 
-<div class="card" style="margin-top:20px;">
-  <h3>{{ t('users') }} ({{ users|length }})</h3>
-  <div class="table-wrap">
-    <table>
-      <thead><tr><th>{{ t('username') }}</th><th>Authorization</th><th>{{ t('name') }}</th><th>{{ t('job') }}</th><th>{{ t('location') }}</th></tr></thead>
+<div class="card" id="users" style="margin-top:20px;">
+  <h3>{{ t('users') }} (<span id="user-visible-count">{{ users|length }}</span> / {{ users|length }} {{ t('shown') }})</h3>
+  <p class="muted">{{ t('user_form_text') }}</p>
+  {% if section == 'users' %}
+  {% if message %}<div class="notice ok">{{ message }}</div>{% endif %}
+  {% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
+  {% endif %}
+  <form id="user-form-new" class="user-form-anchor" method="post" action="/admin/users" autocomplete="off"></form>
+  {% for u in users %}
+  <form id="user-form-{{ loop.index }}" class="user-form-anchor" method="post" action="/admin/users" autocomplete="off">
+    <input type="hidden" name="original_username" value="{{ u.username }}" />
+  </form>
+  {% endfor %}
+  <div class="table-wrap user-table-wrap">
+    <table class="user-table" id="user-table">
+      <thead>
+        <tr>
+          <th>{{ t('username') }}</th>
+          <th>{{ t('authorization') }}</th>
+          <th>{{ t('name') }}</th>
+          <th>{{ t('job') }}</th>
+          <th>{{ t('location') }}</th>
+          <th>{{ t('password') }}</th>
+          <th></th>
+        </tr>
+        <tr class="filter-row">
+          <th><input type="search" data-col="username" placeholder="{{ t('filter') }}" aria-label="{{ t('filter') }} {{ t('username') }}" /></th>
+          <th>
+            <select data-col="authorization" aria-label="{{ t('filter') }} {{ t('authorization') }}">
+              <option value="">{{ t('all') }}</option>
+              {% for role in user_roles %}<option value="{{ role }}">{{ role }}</option>{% endfor %}
+            </select>
+          </th>
+          <th><input type="search" data-col="name" placeholder="{{ t('filter') }}" aria-label="{{ t('filter') }} {{ t('name') }}" /></th>
+          <th><input type="search" data-col="job" placeholder="{{ t('filter') }}" aria-label="{{ t('filter') }} {{ t('job') }}" /></th>
+          <th><input type="search" data-col="location" placeholder="{{ t('filter') }}" aria-label="{{ t('filter') }} {{ t('location') }}" /></th>
+          <th></th>
+          <th></th>
+        </tr>
+      </thead>
       <tbody>
+        <tr class="editor-row">
+          <td><input form="user-form-new" name="username" type="text" value="" autocomplete="off" required placeholder="{{ t('add_user') }}" aria-label="{{ t('add_user') }} {{ t('username') }}" /></td>
+          <td>
+            <select form="user-form-new" name="authorization" required aria-label="{{ t('add_user') }} {{ t('authorization') }}">
+              {% for role in user_roles %}
+              <option value="{{ role }}" {% if role == 'USER' %}selected{% endif %}>{{ role }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td><input form="user-form-new" name="name" type="text" value="" aria-label="{{ t('add_user') }} {{ t('name') }}" /></td>
+          <td><input form="user-form-new" name="job" type="text" value="" aria-label="{{ t('add_user') }} {{ t('job') }}" /></td>
+          <td><input form="user-form-new" name="location" type="text" value="" aria-label="{{ t('add_user') }} {{ t('location') }}" /></td>
+          <td><input form="user-form-new" name="password" type="password" value="" autocomplete="new-password" required placeholder="{{ t('password') }}" aria-label="{{ t('add_user') }} {{ t('password') }}" /></td>
+          <td><button form="user-form-new" type="submit" class="btn small">{{ t('add_user') }}</button></td>
+        </tr>
         {% for u in users %}
-        <tr><td>{{ u.username }}</td><td><span class="pill pill-{{ u.authorization|lower }}">{{ u.authorization }}</span></td><td>{{ u.name }}</td><td>{{ u.job }}</td><td>{{ u.location }}</td></tr>
+        {% set f = 'user-form-' ~ loop.index %}
+        <tr class="user-row">
+          <td><input form="{{ f }}" name="username" type="text" value="{{ u.username }}" autocomplete="off" required data-field="username" aria-label="{{ t('username') }}" /></td>
+          <td>
+            <select form="{{ f }}" name="authorization" required data-field="authorization" aria-label="{{ t('authorization') }}">
+              {% for role in user_roles %}
+              <option value="{{ role }}" {% if u.authorization == role %}selected{% endif %}>{{ role }}</option>
+              {% endfor %}
+            </select>
+          </td>
+          <td><input form="{{ f }}" name="name" type="text" value="{{ u.name }}" data-field="name" aria-label="{{ t('name') }}" /></td>
+          <td><input form="{{ f }}" name="job" type="text" value="{{ u.job }}" data-field="job" aria-label="{{ t('job') }}" /></td>
+          <td><input form="{{ f }}" name="location" type="text" value="{{ u.location }}" data-field="location" aria-label="{{ t('location') }}" /></td>
+          <td><input form="{{ f }}" name="password" type="password" value="" autocomplete="new-password" placeholder="{{ t('password_keep') }}" aria-label="{{ t('password') }}" /></td>
+          <td><button form="{{ f }}" type="submit" class="btn small">{{ t('save_user') }}</button></td>
+        </tr>
         {% endfor %}
       </tbody>
     </table>
   </div>
+  <p class="muted small user-extend-hint">{{ t('extend_list') }}</p>
 </div>
+<script>
+(function () {
+  var table = document.getElementById("user-table");
+  var count = document.getElementById("user-visible-count");
+  if (!table || !count) return;
+  var filters = table.querySelectorAll("[data-col]");
+  var rows = table.querySelectorAll("tbody tr.user-row");
+  function apply() {
+    var terms = {};
+    filters.forEach(function (el) { terms[el.getAttribute("data-col")] = (el.value || "").trim().toLowerCase(); });
+    var shown = 0;
+    rows.forEach(function (row) {
+      var ok = Object.keys(terms).every(function (key) {
+        if (!terms[key]) return true;
+        var cell = row.querySelector('[data-field="' + key + '"]');
+        return ((cell && cell.value) || "").toLowerCase().indexOf(terms[key]) !== -1;
+      });
+      row.hidden = !ok;
+      if (ok) shown += 1;
+    });
+    count.textContent = String(shown);
+  }
+  filters.forEach(function (el) {
+    el.addEventListener("input", apply);
+    el.addEventListener("change", apply);
+  });
+  rows.forEach(function (row) {
+    row.addEventListener("input", function () { row.classList.add("row-dirty"); });
+    row.addEventListener("change", function () { row.classList.add("row-dirty"); });
+  });
+  var wrap = table.closest(".user-table-wrap");
+  if (wrap && window.ResizeObserver) {
+    var saved = localStorage.getItem("userTableHeight");
+    if (saved) wrap.style.height = saved;
+    new ResizeObserver(function () {
+      localStorage.setItem("userTableHeight", wrap.offsetHeight + "px");
+    }).observe(wrap);
+  }
+})();
+</script>
 
 <div class="card" style="margin-top:20px;">
   <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">

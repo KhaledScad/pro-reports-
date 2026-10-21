@@ -21,7 +21,10 @@
         <a class="btn small" href="/survey/{{ a.type|lower }}">{{ t('calculations') }}</a>
         <a class="btn small ghost" href="/compare/{{ a.type|lower }}">{{ t('comparison') }}</a>
       </div>
-      <div class="chip-label">{{ t('assigned_frame_ids') }} ({{ a.frame_ids|length }})</div>
+      <div class="chip-label">
+        {% if a.period %}{{ t('assigned_frame_ids_in') }} {{ a.period|period_label(lang) }}{% else %}{{ t('assigned_frame_ids') }}{% endif %}
+        ({{ a.frame_ids|length }})
+      </div>
       {% if a.frame_ids %}
       <div class="chip-list">
         {% for f in a.frame_ids %}<span class="chip">{{ f }}</span>{% endfor %}

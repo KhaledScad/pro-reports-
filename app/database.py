@@ -82,6 +82,15 @@ def _sqlite_copy(src_path: Path, dst_path: Path) -> None:
         dst.close()
 
 
+def _file_stamp(path: Path) -> tuple:
+    """Changes whenever the database file does: its mtime, size and SQLite's
+    own file change counter (header bytes 24-27, bumped on every commit)."""
+    st = path.stat()
+    with open(path, "rb") as f:
+        counter = f.read(28)[24:28]
+    return st.st_mtime_ns, st.st_size, counter
+
+
 def _hydrate_from_durable() -> None:
     """On startup, pull down any database that exists durably but not yet
     locally — a fresh/reset VDI session, or the first run on this machine."""
@@ -91,13 +100,23 @@ def _hydrate_from_durable() -> None:
             _sqlite_copy(durable, local)
 
 
+_synced_stamps: dict[str, tuple] = {}
+
+
 def sync_now() -> None:
-    """Push the local working copies out to the durable location. Called
-    periodically, after important writes, and on app shutdown."""
+    """Push the local working copies out to the durable location — only the
+    ones that changed since the last push: a full copy of qes.db alone takes
+    most of a second over the network share. Called periodically, after
+    important writes, and on app shutdown."""
     for name in ALL_DB_NAMES:
         local, durable = _local_path(name), _durable_path(name)
-        if local.exists():
-            _sqlite_copy(local, durable)
+        if not local.exists():
+            continue
+        stamp = _file_stamp(local)
+        if _synced_stamps.get(name) == stamp:
+            continue
+        _sqlite_copy(local, durable)
+        _synced_stamps[name] = stamp
 
 
 def _start_background_sync() -> None:
@@ -226,7 +245,7 @@ def list_users() -> list[dict]:
 def get_user(username: str) -> dict | None:
     with get_conn("main") as conn:
         row = conn.execute(
-            "SELECT * FROM users WHERE username = ?", (username,)
+            "SELECT * FROM users WHERE username = ? COLLATE NOCASE", (username,)
         ).fetchone()
         return dict(row) if row else None
 
@@ -240,6 +259,68 @@ def replace_users(users: list[dict]) -> None:
             users,
         )
     sync_now()
+
+
+def save_user(user: dict, original_username: str = "") -> str:
+    """Insert one account, or update the account identified by original_username.
+
+    An empty password on update keeps the current password. Returns
+    USER_CREATED or USER_UPDATED. Raises ValueError when the write would
+    remove the last admin or collide with another username.
+    """
+    username = user["username"].strip()
+    password = (user.get("password") or "").strip()
+    original = (original_username or "").strip()
+    with get_conn("main") as conn:
+        current = None
+        if original:
+            row = conn.execute(
+                "SELECT * FROM users WHERE username = ? COLLATE NOCASE", (original,)
+            ).fetchone()
+            if not row:
+                raise ValueError("User not found.")
+            current = dict(row)
+        clash = conn.execute(
+            "SELECT username FROM users WHERE username = ? COLLATE NOCASE", (username,)
+        ).fetchone()
+        if clash and (not current or clash["username"].lower() != current["username"].lower()):
+            raise ValueError("That username is already in use.")
+        if current and str(current["authorization"]).upper() == "ADMIN" and user["authorization"] != "ADMIN":
+            others = conn.execute(
+                "SELECT COUNT(*) AS c FROM users WHERE authorization = 'ADMIN' "
+                "AND username != ? COLLATE NOCASE",
+                (current["username"],),
+            ).fetchone()
+            if others["c"] == 0:
+                raise ValueError("Keep at least one ADMIN account.")
+        fields = (
+            username, user["authorization"], user["name"], user["job"], user["location"],
+        )
+        if current:
+            if password:
+                conn.execute(
+                    "UPDATE users SET username = ?, password = ?, authorization = ?, name = ?, job = ?, location = ? "
+                    "WHERE username = ? COLLATE NOCASE",
+                    (username, password, *fields[1:], current["username"]),
+                )
+            else:
+                conn.execute(
+                    "UPDATE users SET username = ?, authorization = ?, name = ?, job = ?, location = ? "
+                    "WHERE username = ? COLLATE NOCASE",
+                    (*fields, current["username"]),
+                )
+            action = "USER_UPDATED"
+        else:
+            if not password:
+                raise ValueError("Password is required for a new user.")
+            conn.execute(
+                "INSERT INTO users (username, password, authorization, name, job, location) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (username, password, *fields[1:]),
+            )
+            action = "USER_CREATED"
+    sync_now()
+    return action
 
 
 # ----------------------------------------------------------------- logs ---
@@ -283,7 +364,18 @@ def replace_records(survey_type: str, rows: list[dict], source_file: str) -> int
     return len(rows)
 
 
+_records_cache: dict[str, tuple[tuple, list[dict]]] = {}
+
+
 def all_records(survey_type: str) -> list[dict]:
+    """Every record of `survey_type`, parsed and quarter-placed. Kept in
+    memory until its database file changes (an upload), so a page load does
+    not re-read and re-parse every record. The records are shared between
+    requests: callers must not modify them."""
+    stamp = _file_stamp(_db_path(survey_type))
+    cached = _records_cache.get(survey_type)
+    if cached and cached[0] == stamp:
+        return cached[1]
     with get_conn(survey_type) as conn:
         rows = conn.execute("SELECT * FROM records").fetchall()
     out = []
@@ -291,7 +383,33 @@ def all_records(survey_type: str) -> list[dict]:
         d = dict(r)
         d["data"] = json.loads(d["data"])
         out.append(d)
+    if survey_type in SURVEY_TYPES:
+        _normalize_stored_columns(survey_type, out)
+    _records_cache[survey_type] = (stamp, out)
     return out
+
+
+_quarter_layout_cache: dict[tuple, object] = {}
+
+
+def _normalize_stored_columns(survey_type: str, records: list[dict]) -> None:
+    """Data stored by an app version that predates upload-time quarter
+    placement (excel_utils.normalize_quarter_columns) still carries the merged
+    file's raw names — Right_Q2_2026_Total_Revenue, Right_Licence_Number, and
+    a Q2_2026_ block that may really hold Q4 2025. Place them on read the way
+    an upload now does; data placed at upload comes through unchanged."""
+    from .excel_utils import QuarterLayout  # deferred: keeps openpyxl off the DB import path
+
+    by_sheet: dict[tuple, list[dict]] = {}
+    for r in records:
+        key = (survey_type, r.get("uploaded_at"), r["data"].get("__sheet"), tuple(r["data"].keys()))
+        by_sheet.setdefault(key, []).append(r)
+    for key, group in by_sheet.items():
+        if key not in _quarter_layout_cache:
+            _quarter_layout_cache[key] = QuarterLayout([r["data"] for r in group])
+        layout = _quarter_layout_cache[key]
+        for r in group:
+            r["data"] = layout.apply(r["data"])
 
 
 def records_by_frame(survey_type: str, frame_id: str) -> list[dict]:
