@@ -1,11 +1,11 @@
 """
-Deterministic dummy QES / FISQ records in the exact 20-10 upload layouts
+Deterministic dummy QES / FDI records in the exact 20-10 upload layouts
 (survey_layouts.py), for the variable reference download and the sample
 upload files in sample_data/. The figures follow the tool's own checks, with
 a few records deliberately off so the red flags have something to show:
 
   QES   F106, F115  inventory start differs from the previous quarter's end (Q2 2026)
-  FISQ  F104, F118  equity in form is 15,000 off the asset equation
+  FDI  F104, F118  equity in form is 15,000 off the asset equation
   both  F119, F120  share one licence number (the Record card lists both Frame IDs)
 """
 from __future__ import annotations
@@ -14,7 +14,7 @@ import re
 
 from .calc_common import normalize_header
 from .excel_utils import QuarterLayout, _unique_headers
-from .survey_layouts import FISQ_COLUMNS, QES_COLUMNS
+from .survey_layouts import FDI_COLUMNS, QES_COLUMNS
 
 # Quarter of each QES block in the dummy records. Blocks 2-4 of the 20-10
 # layout are all labelled Q2_2026 (Q2_2026_ / Right_Q2_2026_ /
@@ -23,7 +23,7 @@ from .survey_layouts import FISQ_COLUMNS, QES_COLUMNS
 QES_BLOCKS = {"Q3_2026_": "Q3_2026", "Q2_2026_": "Q2_2026",
               "Right_Q2_2026_": "Q1_2026", "Right_Right_Q2_2026_": "Q4_2025"}
 CHRONOLOGICAL = {"QES": ["Q4_2025", "Q1_2026", "Q2_2026", "Q3_2026"],
-                 "FISQ": ["Q3_2025", "Q1_2026", "Q2_2026", "Q3_2026"]}
+                 "FDI": ["Q3_2025", "Q1_2026", "Q2_2026", "Q3_2026"]}
 
 BUSINESS_TYPES = [
     ("Trade", "تجارة", "4610", "Wholesale trade", "تجارة الجملة"),
@@ -61,7 +61,7 @@ def _qes_figures(i: int, ci: int) -> dict:
     }
 
 
-def _fisq_figures(i: int, ci: int) -> dict:
+def _fdi_figures(i: int, ci: int) -> dict:
     ca, nca = _grow(280000, i, ci), _grow(480000, i, ci)
     cl, ltl = _grow(140000, i, ci), _grow(190000, i, ci)
     equity = ca + nca - cl - ltl - (15000 if i in (3, 17) else 0)  # 2 records off on purpose
@@ -95,9 +95,9 @@ def _text(key: str, i: int) -> object:
 
 
 def dummy_rows(survey_type: str, count: int = 20) -> tuple[list[str], list[list]]:
-    """The 20-10 header row for QES or FISQ, exactly as in the source file, and
+    """The 20-10 header row for QES or FDI, exactly as in the source file, and
     `count` dummy records under it (Frame IDs F101, F102, ...)."""
-    layout = QES_COLUMNS if survey_type == "QES" else FISQ_COLUMNS
+    layout = QES_COLUMNS if survey_type == "QES" else FDI_COLUMNS
     headers = _unique_headers(layout)
     # Where the upload step puts each column. The Q2_2026-labelled blocks are
     # placed through their YEAR / QUARTER values, so the probe carries those.
@@ -107,7 +107,7 @@ def dummy_rows(survey_type: str, count: int = 20) -> tuple[list[str], list[list]
             probe[f"{prefix}YEAR"], probe[f"{prefix}QUARTER"] = quarter[3:], quarter[:2]
     rename = QuarterLayout([probe]).renames(probe)
     order = CHRONOLOGICAL[survey_type]
-    figures = _qes_figures if survey_type == "QES" else _fisq_figures
+    figures = _qes_figures if survey_type == "QES" else _fdi_figures
 
     rows = []
     for i in range(count):

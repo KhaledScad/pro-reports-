@@ -1,40 +1,116 @@
 {% extends "base.html" %}
 {% block title %}{{ t('guide_title') }} - {{ t('app_title') }}{% endblock %}
 {% block content %}
+{# The user guide. Example screens use made-up numbers that follow the real formulas:
+   Trade quarter — Revenue 250,000, Inventory end 8,000, start 5,000, Raw material 40,000,
+   Operations cost 15,000, Expenditure 120,000. #}
+{% set ul_style = "margin:6px 0 0; padding-inline-start:20px; line-height:1.6;" %}
 <h2>{{ t('guide_title') }}</h2>
 <p class="muted">{{ t('guide_intro') }}</p>
 
-<div class="guide-tabs" role="tablist">
-  <button type="button" class="guide-tab-btn {{ 'active' if guide_tab != 'fisq' }}" data-guide-tab="qes" aria-selected="{{ 'true' if guide_tab != 'fisq' else 'false' }}">{{ t('guide_tab_qes') }}</button>
-  <button type="button" class="guide-tab-btn {{ 'active' if guide_tab == 'fisq' }}" data-guide-tab="fisq" aria-selected="{{ 'true' if guide_tab == 'fisq' else 'false' }}">{{ t('guide_tab_fisq') }}</button>
+<div class="card">
+  <h3>{{ t('guide_contents') }}</h3>
+  <div class="chip-list">
+    <a class="chip" href="#guide-start">{{ t('guide_start_title') }}</a>
+    <a class="chip" href="#guide-search">{{ t('guide_search_title') }}</a>
+    <a class="chip" href="#guide-colors">{{ t('guide_colors_title') }}</a>
+    <a class="chip" href="#guide-surveys">{{ t('guide_surveys_title') }}</a>
+    <a class="chip" href="#guide-charts">{{ t('guide_charts_title') }}</a>
+  </div>
+  <p class="muted small" style="margin-bottom:0;">{{ t('guide_mock_disclaimer') }}</p>
 </div>
-<p class="guide-current-label">{{ t('guide_now_viewing') }}: <strong id="guide-current-name">{{ t('guide_tab_fisq') if guide_tab == 'fisq' else t('guide_tab_qes') }}</strong></p>
 
-<div class="guide-panel" id="guide-panel-qes" {{ 'hidden' if guide_tab == 'fisq' }}>
+<div class="card" id="guide-start">
+  <h3>{{ t('guide_start_title') }}</h3>
+  <p>{{ t('guide_start_home') }}</p>
+  <p>{{ t('guide_start_access') }}</p>
+  <p>{{ t('guide_start_pages') }}</p>
+</div>
+
+<div class="card" id="guide-search">
+  <h3>{{ t('guide_search_title') }}</h3>
+  <p>{{ t('guide_search_boxes') }}</p>
+  <div class="mock-window">
+    <div class="mock-toolbar">
+      <span class="mock-dot" style="background:#ff5f56"></span>
+      <span class="mock-dot" style="background:#ffbd2e"></span>
+      <span class="mock-dot" style="background:#27c93f"></span>
+      <span class="mock-address">/survey/qes</span>
+    </div>
+    <div class="mock-body">
+      <div class="frame-search">
+        <div><label style="margin-top:0;">{{ t('frame_id') }}</label><input type="text" value="DEMO-001" disabled /></div>
+        <div class="frame-search-or">{{ t('or') }}</div>
+        <div><label style="margin-top:0;">{{ t('license_number') }}</label><input type="text" placeholder="{{ t('license_placeholder') }}" disabled /></div>
+      </div>
+      <button type="button" class="btn" disabled style="margin-top:10px;">{{ t('search_calc') }}</button>
+    </div>
+  </div>
+
+  <h4 style="margin:18px 0 8px;">{{ t('guide_search_license_title') }}</h4>
+  <p>{{ t('guide_search_license') }}</p>
+  <p>{{ t('guide_search_sources') }}</p>
+  <div class="mock-window">
+    <div class="mock-toolbar">
+      <span class="mock-dot" style="background:#ff5f56"></span>
+      <span class="mock-dot" style="background:#ffbd2e"></span>
+      <span class="mock-dot" style="background:#27c93f"></span>
+      <span class="mock-address">/survey/qes?frame_id=DEMO-001</span>
+    </div>
+    <div class="mock-body">
+      <strong>{{ t('record') }}</strong>
+      <div class="fields-grid">
+        <div class="field"><span>{{ t('frame_id') }}</span><strong>DEMO-001</strong></div>
+        <div class="field"><span>{{ t('license_number') }}</span><strong>CN-0000001</strong></div>
+        <div class="field" style="grid-column:1/-1;"><span>{{ t('license_frames') }} (2)</span>
+          <strong style="display:block;">DEMO-001 &mdash; {{ 'Q4_2025'|period_label(lang) }}, {{ 'Q1_2026'|period_label(lang) }}</strong>
+          <strong style="display:block;">DEMO-002 &mdash; {{ 'Q2_2026'|period_label(lang) }}, {{ 'Q3_2026'|period_label(lang) }}</strong>
+          <span class="sub">{{ t('license_combined_hint') }}</span></div>
+      </div>
+      <div class="formula-box" style="margin-bottom:0;">
+        <strong>{{ 'Q2_2026'|period_label(lang) }} &mdash; Trade</strong>
+        <span class="muted small">&middot; {{ t('frame_id') }} DEMO-002 ({{ t('also_reported_under') }} DEMO-001)</span>
+      </div>
+    </div>
+  </div>
+
+  <h4 style="margin:18px 0 8px;">{{ t('guide_search_periods_title') }}</h4>
+  <p>{{ t('guide_search_periods') }}</p>
+
+  <h4 style="margin:18px 0 8px;">{{ t('guide_record_title') }}</h4>
+  <p>{{ t('guide_record_desc') }}</p>
+</div>
+
+<div class="card" id="guide-colors">
+  <h3>{{ t('guide_colors_title') }}</h3>
+  <div class="fields-grid">
+    <div class="field"><strong class="trend-up" style="padding:1px 8px; border-radius:6px;">250,000</strong><span class="sub" style="margin-top:6px;">{{ t('guide_color_up') }}</span></div>
+    <div class="field"><strong class="trend-down" style="padding:1px 8px; border-radius:6px;">210,000</strong><span class="sub" style="margin-top:6px;">{{ t('guide_color_down') }}</span></div>
+    <div class="field"><strong>{{ t('base_period') }}</strong><span class="sub" style="margin-top:6px;">{{ t('guide_color_base') }}</span></div>
+    <div class="field"><strong class="positive">{{ t('no_change') }}</strong><span class="sub" style="margin-top:6px;">{{ t('guide_color_ok') }}</span></div>
+    <div class="field"><strong class="negative">{{ t('changed') }}</strong><span class="sub" style="margin-top:6px;">{{ t('guide_color_bad') }}</span></div>
+    <div class="field"><div class="notice bad small" style="margin:0;">{{ t('compensation_exceeds') }}</div><span class="sub" style="margin-top:6px;">{{ t('guide_color_flag') }}</span></div>
+  </div>
+</div>
+
+<div class="card" id="guide-surveys">
+  <h3>{{ t('guide_surveys_title') }}</h3>
+  <div class="guide-tabs" role="tablist">
+    <button type="button" class="guide-tab-btn {{ 'active' if guide_tab != 'fdi' }}" data-guide-tab="qes" aria-selected="{{ 'true' if guide_tab != 'fdi' else 'false' }}">{{ t('guide_tab_qes') }}</button>
+    <button type="button" class="guide-tab-btn {{ 'active' if guide_tab == 'fdi' }}" data-guide-tab="fdi" aria-selected="{{ 'true' if guide_tab == 'fdi' else 'false' }}">{{ t('guide_tab_fdi') }}</button>
+  </div>
+  <p class="guide-current-label" style="margin-bottom:0;">{{ t('guide_now_viewing') }}: <strong id="guide-current-name">{{ t('guide_tab_fdi') if guide_tab == 'fdi' else t('guide_tab_qes') }}</strong></p>
+</div>
+
+<div class="guide-panel" id="guide-panel-qes" {{ 'hidden' if guide_tab == 'fdi' }}>
 
   <div class="card">
     <h3>{{ t('guide_howto_qes_title') }}</h3>
-    <p class="muted">{{ t('guide_mock_disclaimer') }}</p>
     <div class="howto-steps">
 
       <div>
         <div class="howto-step-label">{{ t('guide_howto_qes_step1_label') }}</div>
         <p class="howto-step-desc">{{ t('guide_howto_qes_step1_desc') }}</p>
-        <div class="mock-window">
-          <div class="mock-toolbar">
-            <span class="mock-dot" style="background:#ff5f56"></span>
-            <span class="mock-dot" style="background:#ffbd2e"></span>
-            <span class="mock-dot" style="background:#27c93f"></span>
-            <span class="mock-address">/survey/qes</span>
-          </div>
-          <div class="mock-body">
-            <label style="margin-top:0;">{{ t('frame_id') }}</label>
-            <div style="display:flex; gap:8px;">
-              <input type="text" value="DEMO-001" disabled />
-              <button type="button" disabled style="flex-shrink:0;">{{ t('search_calc') }}</button>
-            </div>
-          </div>
-        </div>
       </div>
 
       <div>
@@ -49,14 +125,17 @@
           </div>
           <div class="mock-body">
             <div class="formula-box">
-              <div class="formula-line"><strong>{{ 'Q2_2026'|period_label(lang) }} &mdash; Trade</strong></div>
+              <strong>{{ 'Q2_2026'|period_label(lang) }} &mdash; Trade</strong>
               <div class="formula-line">{{ t('gross_output') }} = 250,000 + 8,000 &minus; 5,000 &minus; 40,000 = <strong>213,000</strong></div>
+              <div class="formula-line">{{ t('intermediate_consumption') }} = 15,000 + 120,000 = <strong>135,000</strong></div>
+              <div class="formula-line">{{ t('added_value') }} = 213,000 &minus; 135,000 = <strong>78,000</strong></div>
+              <div class="formula-line">{{ t('profit') }} = 213,000 &minus; (120,000 &minus; 40,000) = <strong>133,000</strong></div>
             </div>
             <div class="fields-grid">
-              <div class="field"><span>{{ t('business_type') }}</span><strong>Trade &mdash; Sample Trading LLC</strong></div>
-              <div class="field"><span>{{ t('revenue') }}</span><strong>250,000</strong></div>
-              <div class="field"><span>{{ t('profit') }}</span><strong class="positive">43,000</strong></div>
-              <div class="field"><span>{{ t('av_pct') }}</span><strong>62%</strong></div>
+              <div class="field"><span>{{ t('revenue') }}</span><strong class="positive">250,000</strong></div>
+              <div class="field"><span>{{ t('gross_output') }}</span><strong>213,000</strong></div>
+              <div class="field"><span>{{ t('added_value') }}</span><strong class="positive">78,000</strong></div>
+              <div class="field"><span>{{ t('av_pct') }}</span><strong>36.62%</strong></div>
             </div>
           </div>
         </div>
@@ -77,8 +156,8 @@
               <table>
                 <thead><tr><th>{{ t('period') }}</th><th>{{ t('revenue') }}</th><th>{{ t('profit') }}</th><th>{{ t('added_value') }}</th></tr></thead>
                 <tbody>
-                  <tr><td>{{ 'Q1_2026'|period_label(lang) }}</td><td>210,000</td><td>32,000</td><td>140,000</td></tr>
-                  <tr><td>{{ 'Q2_2026'|period_label(lang) }}</td><td class="trend-up">250,000</td><td class="trend-up">43,000</td><td class="trend-down">130,000</td></tr>
+                  <tr><td>{{ 'Q2_2026'|period_label(lang) }}</td><td class="trend-up">250,000</td><td class="trend-up">133,000</td><td class="trend-down">78,000</td></tr>
+                  <tr><td>{{ 'Q1_2026'|period_label(lang) }}</td><td>210,000</td><td>98,000</td><td>81,500</td></tr>
                 </tbody>
               </table>
             </div>
@@ -100,6 +179,7 @@
       <div class="formula-line">{{ t('guide_qes_industry') }}</div>
       <div class="formula-line">{{ t('guide_qes_construction') }}</div>
     </div>
+    <p class="muted small">{{ t('guide_qes_ic_file') }}</p>
 
     <h4 style="margin:18px 0 8px;">{{ t('guide_qes_shared_title') }}</h4>
     <div class="formula-box">
@@ -110,8 +190,35 @@
       <div class="formula-line">{{ t('guide_qes_av_pct') }}</div>
       <div class="formula-line">{{ t('guide_qes_ic_pct') }}</div>
     </div>
+  </div>
 
-    <h4 style="margin:18px 0 8px;">{{ t('guide_qes_glossary_title') }}</h4>
+  <div class="card">
+    <h3>{{ t('guide_qes_checks_title') }}</h3>
+    <ul style="{{ ul_style }}">
+      <li>{{ t('guide_qes_check_av') }}</li>
+      <li>{{ t('guide_qes_check_comp') }}
+        <div class="notice bad small" style="margin:6px 0;">{{ t('compensation_flag') }} ({{ t('compensation') }} 125,000 &gt; {{ t('expenditure') }} 120,000)</div></li>
+      <li>{{ t('guide_qes_check_comp_tp') }}</li>
+      <li>{{ t('guide_qes_check_inventory') }}</li>
+      <li>{{ t('guide_qes_check_isic') }}</li>
+      <li>{{ t('guide_qes_check_aes') }}</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>{{ t('guide_qes_compare_title') }}</h3>
+    <ul style="{{ ul_style }}">
+      <li>{{ t('guide_qes_cmp_financial') }}</li>
+      <li>{{ t('guide_qes_cmp_isic') }}</li>
+      <li>{{ t('guide_qes_cmp_inventory') }}</li>
+      <li>{{ t('guide_qes_cmp_employees') }}</li>
+      <li>{{ t('guide_cmp_details') }}</li>
+      <li>{{ t('guide_cmp_charts') }}</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>{{ t('guide_qes_glossary_title') }}</h3>
     <div class="fields-grid">
       <div class="field"><span>{{ t('revenue') }}</span><strong>{{ t('guide_def_revenue') }}</strong></div>
       <div class="field"><span>{{ t('expenditure') }}</span><strong>{{ t('guide_def_expenditure') }}</strong></div>
@@ -120,8 +227,8 @@
       <div class="field"><span>{{ t('added_value') }}</span><strong>{{ t('guide_def_added_value') }}</strong></div>
       <div class="field"><span>{{ t('profit') }}</span><strong>{{ t('guide_def_profit') }}</strong></div>
       <div class="field"><span>{{ t('employees') }}</span><strong>{{ t('guide_def_employees') }}</strong></div>
-      <div class="field"><span>{{ t('average_salary') }}</span><strong>{{ t('guide_def_average_salary') }}</strong></div>
       <div class="field"><span>{{ t('compensation') }}</span><strong>{{ t('guide_def_compensation') }}</strong></div>
+      <div class="field"><span>{{ t('average_salary') }}</span><strong>{{ t('guide_def_average_salary') }}</strong></div>
       <div class="field"><span>{{ t('inventory_start') }}</span><strong>{{ t('guide_def_inventory_start') }}</strong></div>
       <div class="field"><span>{{ t('inventory_end') }}</span><strong>{{ t('guide_def_inventory_end') }}</strong></div>
       <div class="field"><span>{{ t('profit_pct') }}</span><strong>{{ t('guide_def_profit_pct') }}</strong></div>
@@ -132,76 +239,60 @@
 
 </div>
 
-<div class="guide-panel" id="guide-panel-fisq" {{ 'hidden' if guide_tab != 'fisq' }}>
+<div class="guide-panel" id="guide-panel-fdi" {{ 'hidden' if guide_tab != 'fdi' }}>
 
   <div class="card">
-    <h3>{{ t('guide_howto_fisq_title') }}</h3>
-    <p class="muted">{{ t('guide_mock_disclaimer') }}</p>
+    <h3>{{ t('guide_howto_fdi_title') }}</h3>
     <div class="howto-steps">
 
       <div>
-        <div class="howto-step-label">{{ t('guide_howto_fisq_step1_label') }}</div>
-        <p class="howto-step-desc">{{ t('guide_howto_fisq_step1_desc') }}</p>
-        <div class="mock-window">
-          <div class="mock-toolbar">
-            <span class="mock-dot" style="background:#ff5f56"></span>
-            <span class="mock-dot" style="background:#ffbd2e"></span>
-            <span class="mock-dot" style="background:#27c93f"></span>
-            <span class="mock-address">/survey/fisq</span>
-          </div>
-          <div class="mock-body">
-            <label style="margin-top:0;">{{ t('frame_id') }}</label>
-            <div style="display:flex; gap:8px;">
-              <input type="text" value="SAMPLE-01" disabled />
-              <button type="button" disabled style="flex-shrink:0;">{{ t('search_calc') }}</button>
-            </div>
-          </div>
-        </div>
+        <div class="howto-step-label">{{ t('guide_howto_fdi_step1_label') }}</div>
+        <p class="howto-step-desc">{{ t('guide_howto_fdi_step1_desc') }}</p>
       </div>
 
       <div>
-        <div class="howto-step-label">{{ t('guide_howto_fisq_step2_label') }}</div>
-        <p class="howto-step-desc">{{ t('guide_howto_fisq_step2_desc') }}</p>
+        <div class="howto-step-label">{{ t('guide_howto_fdi_step2_label') }}</div>
+        <p class="howto-step-desc">{{ t('guide_howto_fdi_step2_desc') }}</p>
         <div class="mock-window">
           <div class="mock-toolbar">
             <span class="mock-dot" style="background:#ff5f56"></span>
             <span class="mock-dot" style="background:#ffbd2e"></span>
             <span class="mock-dot" style="background:#27c93f"></span>
-            <span class="mock-address">/survey/fisq?frame_id=SAMPLE-01</span>
+            <span class="mock-address">/survey/fdi?frame_id=SAMPLE-01</span>
           </div>
           <div class="mock-body">
             <div class="formula-box">
-              <div class="formula-line"><strong>{{ 'Q2_2026'|period_label(lang) }} &mdash; {{ t('beginning_of_period') }}</strong></div>
-              <div class="formula-line">{{ t('total_assets') }} = 280,000 &nbsp;&nbsp; {{ t('total_liabilities') }} = 190,000 &nbsp;&nbsp; {{ t('calculated_equity') }} = <strong>90,000</strong></div>
-              <div class="formula-line"><strong>{{ 'Q2_2026'|period_label(lang) }} &mdash; {{ t('end_of_period') }}</strong></div>
-              <div class="formula-line">{{ t('total_assets') }} = 302,400 &nbsp;&nbsp; {{ t('total_liabilities') }} = 198,000 &nbsp;&nbsp; {{ t('calculated_equity') }} = <strong>104,400</strong></div>
+              <strong>{{ 'Q2_2026'|period_label(lang) }}</strong>
+              <div class="formula-line">{{ t('total_assets') }} = 180,000 + 122,400 = <strong>302,400</strong></div>
+              <div class="formula-line">{{ t('total_liabilities') }} = 120,000 + 78,000 = <strong>198,000</strong></div>
+              <div class="formula-line">{{ t('calculated_equity') }} = 302,400 &minus; 198,000 = <strong>104,400</strong></div>
+              <div class="formula-line">{{ t('difference') }} = 104,400 &minus; 104,400 = <strong class="positive">0</strong></div>
             </div>
             <div class="fields-grid">
               <div class="field"><span>{{ t('equity_in_form') }}</span><strong>104,400</strong></div>
-              <div class="field"><span>{{ t('difference') }}</span><strong class="positive">0</strong></div>
-              <div class="field"><span>{{ t('status') }}</span><strong class="positive">{{ t('balanced') }}</strong></div>
+              <div class="field"><span>{{ t('status') }}</span><strong class="positive">Balanced</strong></div>
             </div>
           </div>
         </div>
       </div>
 
       <div>
-        <div class="howto-step-label">{{ t('guide_howto_fisq_step3_label') }}</div>
-        <p class="howto-step-desc">{{ t('guide_howto_fisq_step3_desc') }}</p>
+        <div class="howto-step-label">{{ t('guide_howto_fdi_step3_label') }}</div>
+        <p class="howto-step-desc">{{ t('guide_howto_fdi_step3_desc') }}</p>
         <div class="mock-window">
           <div class="mock-toolbar">
             <span class="mock-dot" style="background:#ff5f56"></span>
             <span class="mock-dot" style="background:#ffbd2e"></span>
             <span class="mock-dot" style="background:#27c93f"></span>
-            <span class="mock-address">/compare/fisq?frame_id=SAMPLE-01</span>
+            <span class="mock-address">/compare/fdi?frame_id=SAMPLE-01</span>
           </div>
           <div class="mock-body">
             <div class="table-wrap">
               <table>
                 <thead><tr><th>{{ t('period') }}</th><th>{{ t('total_assets') }}</th><th>{{ t('total_liabilities') }}</th><th>{{ t('calculated_equity') }}</th></tr></thead>
                 <tbody>
-                  <tr><td>{{ 'Q1_2026'|period_label(lang) }}</td><td>260,000</td><td>180,000</td><td>80,000</td></tr>
                   <tr><td>{{ 'Q2_2026'|period_label(lang) }}</td><td class="trend-up">302,400</td><td class="trend-up">198,000</td><td class="trend-up">104,400</td></tr>
+                  <tr><td>{{ 'Q1_2026'|period_label(lang) }}</td><td>260,000</td><td>180,000</td><td>80,000</td></tr>
                 </tbody>
               </table>
             </div>
@@ -213,23 +304,47 @@
   </div>
 
   <div class="card">
-    <h3>{{ t('guide_fisq_title') }}</h3>
-    <p class="muted">{{ t('guide_fisq_intro') }}</p>
-
+    <h3>{{ t('guide_fdi_title') }}</h3>
+    <p class="muted">{{ t('guide_fdi_intro') }}</p>
     <div class="formula-box">
-      <div class="formula-line">{{ t('guide_fisq_total_assets') }}</div>
-      <div class="formula-line">{{ t('guide_fisq_total_liab') }}</div>
-      <div class="formula-line">{{ t('guide_fisq_calc_equity') }}</div>
-      <div class="formula-line">{{ t('guide_fisq_difference') }}</div>
+      <div class="formula-line">{{ t('guide_fdi_total_assets') }}</div>
+      <div class="formula-line">{{ t('guide_fdi_total_liab') }}</div>
+      <div class="formula-line">{{ t('guide_fdi_calc_equity') }}</div>
+      <div class="formula-line">{{ t('guide_fdi_difference') }}</div>
+      <div class="formula-line">{{ t('guide_fdi_equity_items') }}</div>
     </div>
 
-    <h4 style="margin:18px 0 8px;">{{ t('guide_fisq_movement_title') }}</h4>
-    <p>{{ t('guide_fisq_movement_desc') }}</p>
+    <h4 style="margin:18px 0 8px;">{{ t('guide_fdi_movement_title') }}</h4>
+    <p>{{ t('guide_fdi_movement_desc') }}</p>
+  </div>
 
-    <h4 style="margin:18px 0 8px;">{{ t('guide_fisq_equity_details_title') }}</h4>
-    <p>{{ t('guide_fisq_equity_details_desc') }}</p>
+  <div class="card">
+    <h3>{{ t('guide_fdi_checks_title') }}</h3>
+    <ul style="{{ ul_style }}">
+      <li>{{ t('guide_fdi_check_equation') }}</li>
+      <li>{{ t('guide_fdi_check_items') }}</li>
+      <li>{{ t('guide_fdi_check_file') }}</li>
+      <li>{{ t('guide_fdi_check_movement') }}</li>
+      <li>{{ t('guide_fdi_check_isic') }}</li>
+    </ul>
+  </div>
 
-    <h4 style="margin:18px 0 8px;">{{ t('guide_fisq_glossary_title') }}</h4>
+  <div class="card">
+    <h3>{{ t('guide_fdi_compare_title') }}</h3>
+    <ul style="{{ ul_style }}">
+      <li>{{ t('guide_fdi_cmp_equation') }}</li>
+      <li>{{ t('guide_fdi_cmp_movement') }}</li>
+      <li>{{ t('guide_fdi_cmp_isic') }}</li>
+      <li>{{ t('guide_fdi_cmp_equity') }}</li>
+      <li>{{ t('guide_fdi_cmp_validation') }}</li>
+      <li>{{ t('guide_fdi_cmp_flags') }}</li>
+      <li>{{ t('guide_cmp_details') }}</li>
+      <li>{{ t('guide_cmp_charts') }}</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>{{ t('guide_fdi_glossary_title') }}</h3>
     <div class="fields-grid">
       <div class="field"><span>{{ t('current_assets') }}</span><strong>{{ t('guide_def_current_assets') }}</strong></div>
       <div class="field"><span>{{ t('non_current_assets') }}</span><strong>{{ t('guide_def_non_current_assets') }}</strong></div>
@@ -242,14 +357,7 @@
 
 </div>
 
-<div class="card">
-  <h3>{{ t('guide_isic_title') }}</h3>
-  <p>{{ t('guide_isic_desc') }}</p>
-  <h4 style="margin:18px 0 8px;">{{ t('annual_isic_title') }}</h4>
-  <p>{{ t('annual_isic_desc') }}</p>
-</div>
-
-<div class="card">
+<div class="card" id="guide-charts">
   <h3>{{ t('guide_charts_title') }}</h3>
   <p>{{ t('guide_charts_desc') }}</p>
 </div>
@@ -257,7 +365,7 @@
 <script>
 (function () {
   var buttons = document.querySelectorAll(".guide-tab-btn");
-  var panels = { qes: document.getElementById("guide-panel-qes"), fisq: document.getElementById("guide-panel-fisq") };
+  var panels = { qes: document.getElementById("guide-panel-qes"), fdi: document.getElementById("guide-panel-fdi") };
   var currentName = document.getElementById("guide-current-name");
   buttons.forEach(function (btn) {
     btn.addEventListener("click", function () {
@@ -271,6 +379,10 @@
       if (currentName) { currentName.textContent = btn.textContent; }
     });
   });
+  // Opened from a survey page's Guide link (?tab=qes / ?tab=fdi): go straight to that survey's guide.
+  if (/[?&]tab=/.test(location.search) && !location.hash) {
+    document.getElementById("guide-surveys").scrollIntoView();
+  }
 })();
 </script>
 {% endblock %}

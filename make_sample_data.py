@@ -1,4 +1,4 @@
-"""One-off helper: generates sample Account / QES / FISQ Excel files for
+"""One-off helper: generates sample Account / QES / FDI Excel files for
 smoke-testing the app. Not part of the running application."""
 from openpyxl import Workbook
 
@@ -45,10 +45,10 @@ ws.append([
 ])
 wb.save(f"{OUT}/QES_sample.xlsx")
 
-# ---- FISQ sample -----------------------------------------------------------
+# ---- FDI sample -----------------------------------------------------------
 wb = Workbook()
 ws = wb.active
-ws.title = "FISQ"
+ws.title = "FDI"
 headers = ["FRAME_ID", "ESTABLISHMENT_NAME", "AUDITOR_NAME_EN", "Auditor_User_Name", "Supervisor_USER_Name"]
 for q in ["Q1_2026", "Q2_2026"]:
     headers += [f"{q}_Current_Assets", f"{q}_Non_Current_Assets", f"{q}_Current_Liabilities",
@@ -61,13 +61,13 @@ ws.append([
     300000, 500000, 150000, 200000, 450000, 100000, 200000, 150000, 0, 0, 0,
     320000, 510000, 155000, 205000, 470000, 100000, 220000, 150000, 0, 0, 0,
 ])
-wb.save(f"{OUT}/FISQ_sample.xlsx")
+wb.save(f"{OUT}/FDI_sample.xlsx")
 
 # ===========================================================================
 # Dummy: 20 records x 4 quarters in the exact 20-10 upload layouts
 # (app/survey_layouts.py), Right_ blocks and all. app/dummy_data.py lists the
 # records that are deliberately off so the red checks have something to show.
-for survey_type in ("QES", "FISQ"):
+for survey_type in ("QES", "FDI"):
     headers, rows = dummy_rows(survey_type, 20)
     wb = Workbook()
     ws = wb.active
@@ -78,4 +78,4 @@ for survey_type in ("QES", "FISQ"):
     wb.save(f"{OUT}/{survey_type}_dummy_20x4Q.xlsx")
 
 print("Sample files written to", OUT)
-print("Dummy files: QES_dummy_20x4Q.xlsx, FISQ_dummy_20x4Q.xlsx (20 Frame IDs each, in the 20-10 upload layouts)")
+print("Dummy files: QES_dummy_20x4Q.xlsx, FDI_dummy_20x4Q.xlsx (20 Frame IDs each, in the 20-10 upload layouts)")

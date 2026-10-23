@@ -139,7 +139,7 @@ class QuarterLayout:
     other block shares (Q3_2026_) is taken as labelled.
 
     A column without a quarter label that sits inside a block (Licence_Number,
-    FISQ's CURR_AS_Q3_D, or a merged copy such as Right_ESTABLISHMENT_NAME,
+    FDI's CURR_AS_Q3_D, or a merged copy such as Right_ESTABLISHMENT_NAME,
     which belongs with the block after it) goes with that block. Columns
     before the first block (Frame ID, ESTABLISHMENT_NAME) stay plain and serve
     every quarter."""
@@ -282,25 +282,59 @@ def normalize_quarter_columns(rows: list[dict]) -> tuple[list[dict], list[str]]:
     return [layout.apply(row) for row in rows], layout.notes(rows)
 
 
+def long_rows_to_wide(rows: list[dict]) -> list[dict] | None:
+    """The long layout — one row per Frame ID per quarter, with YEAR and
+    QUARTER columns and no Q#_YYYY_ prefixes, as a database view usually
+    returns it — in the wide layout: each row's columns get the prefix of its
+    own quarter (the Frame ID column stays plain), so one Frame ID's rows add
+    up to one record like a wide sheet's. None when `rows` are not long."""
+    headers = list(rows[0]) if rows else []
+    all_headers = set(headers)
+    if any(_split_header(h, all_headers)[1] for h in headers):
+        return None
+    year = next((h for h in headers if normalize_header(h) == "year"), None)
+    quarter = next((h for h in headers if normalize_header(h) == "quarter"), None)
+    if not (year and quarter):
+        return None
+    out = []
+    for row in rows:
+        q = _cell_quarter(row.get(year), row.get(quarter))
+        out.append({k if _is_frame_header_cell(k) else f"{q}_{k}": v for k, v in row.items()} if q else row)
+    return out
+
+
+def records_from_rows(rows: list[dict], source: str) -> tuple[list[dict], list[str]]:
+    """One sheet's (or one query's) rows as {frame_id, data} records, with
+    each quarter's columns under their Q#_YYYY_ prefix, skipping rows without
+    a Frame ID. Also returns notes on how quarter blocks were placed."""
+    wide = long_rows_to_wide(rows)
+    if wide is not None:
+        rows, notes = wide, [f"{len(wide)} rows read as one row per quarter (YEAR / QUARTER columns)"]
+    else:
+        rows, notes = normalize_quarter_columns(rows)
+    out = []
+    for row in rows:
+        if not row:
+            continue
+        frame_id = get_frame_id(row)
+        if not frame_id:
+            continue
+        data = dict(row)
+        data["__sheet"] = source
+        out.append({"frame_id": frame_id, "data": data})
+    return out, notes
+
+
 def rows_for_survey(file_bytes: bytes, sheet_name: str | None = None) -> tuple[list[dict], list[str]]:
     """Flatten sheet(s) into a list of {frame_id, data} dicts, skipping rows
     without a Frame ID. Also returns notes on how merged quarter blocks were
     placed (see QuarterLayout)."""
-    sheets = read_workbook(file_bytes, sheet_name)
     out = []
     notes = []
-    for sname, rows in sheets.items():
-        rows, sheet_notes = normalize_quarter_columns(rows)
+    for sname, rows in read_workbook(file_bytes, sheet_name).items():
+        records, sheet_notes = records_from_rows(rows, sname)
+        out += records
         notes += sheet_notes
-        for row in rows:
-            if not row:
-                continue
-            frame_id = get_frame_id(row)
-            if not frame_id:
-                continue
-            data = dict(row)
-            data["__sheet"] = sname
-            out.append({"frame_id": frame_id, "data": data})
     return out, notes
 
 
@@ -343,13 +377,22 @@ def parse_account_sheet(file_bytes: bytes, sheet_name: str | None = None) -> lis
         username = str(norm.get("username", "") or "").strip()
         password = str(norm.get("password", "") or "").strip()
         role_raw = str(norm.get("authorization", "") or "").strip().upper()
-        role = "SUPERVISOR" if role_raw == "SUPERVISOR" else ("ADMIN" if role_raw == "ADMIN" else "USER")
+        role = role_raw if role_raw in ("ADMIN", "SUPERVISOR", "CONTROLLER") else "USER"
         name = str(norm.get("name", "") or username).strip()
         job = str(norm.get("job", "") or "").strip()
         location = str(norm.get("location", "") or "").strip()
+        # Optional Employees column (a CONTROLLER's team, as the users export
+        # writes it); None when the sheet has no such column, so teams set on
+        # the Admin page are kept.
+        employees = ([e for e in re.split(r"[,;\n]+", str(norm.get("employees") or "")) if e.strip()]
+                     if "employees" in norm else None)
+        # Optional Status column (Active / Suspended, as the users export
+        # writes it); None without one, so suspensions set on the Admin page are kept.
+        suspended = "suspend" in str(norm.get("status") or "").lower() if "status" in norm else None
         if username and password:
             users.append({
                 "username": username, "password": password, "authorization": role,
-                "name": name, "job": job, "location": location,
+                "name": name, "job": job, "location": location, "employees": employees,
+                "suspended": suspended,
             })
     return users

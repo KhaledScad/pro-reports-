@@ -1,7 +1,7 @@
 """
 SQLite storage layer.
 
-Each survey type (QES, FISQ) gets its own physical .db file so the
+Each survey type (QES, FDI) gets its own physical .db file so the
 data for each project is completely separate, as requested. A shared
 main.db holds user accounts and the action log.
 
@@ -33,7 +33,7 @@ import tempfile
 import threading
 from contextlib import contextmanager
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 
 APP_DIR = Path(__file__).resolve().parent.parent
 DURABLE_DATA_DIR = APP_DIR / "data"
@@ -42,16 +42,20 @@ DURABLE_DATA_DIR.mkdir(exist_ok=True)
 LOCAL_DATA_DIR = Path(os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()) / "ProactiveReporting" / "data"
 LOCAL_DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-SURVEY_TYPES = ["QES", "FISQ"]
+SURVEY_TYPES = ["QES", "FDI"]
 
 # Minimal annual reference data (Frame ID + {YYYY}_ISIC4 columns only) used
-# purely to cross-check ISIC classification stability on the QES/FISQ
+# purely to cross-check ISIC classification stability on the QES/FDI
 # comparison pages against the establishment's AES / FIS annual filings.
 # These are deliberately NOT full survey types: no calculation engine, no
 # /survey or /compare pages of their own, no dashboard "access" cards.
 ANNUAL_ISIC_SOURCES = ["AES", "FIS"]
 
 ALL_DB_NAMES = ["main"] + SURVEY_TYPES + ANNUAL_ISIC_SOURCES
+
+# Surveys renamed after their data was first stored: new name -> the old
+# name their database files still have. FDI was called FISQ until October 2026.
+RENAMED_DBS = {"FDI": "FISQ"}
 
 SYNC_INTERVAL_SECONDS = 60
 
@@ -89,6 +93,20 @@ def _file_stamp(path: Path) -> tuple:
     with open(path, "rb") as f:
         counter = f.read(28)[24:28]
     return st.st_mtime_ns, st.st_size, counter
+
+
+def _migrate_renamed_dbs() -> None:
+    """On the first startup after a rename, copy the survey's data to its new
+    file name. Like hydrating, this machine's working copy wins; otherwise
+    the durable copy is used. The old files are left in place, untouched."""
+    for new, old in RENAMED_DBS.items():
+        local_new = _local_path(new)
+        if local_new.exists():
+            continue
+        if _local_path(old).exists():
+            _sqlite_copy(_local_path(old), local_new)
+        elif not _durable_path(new).exists() and _durable_path(old).exists():
+            _sqlite_copy(_durable_path(old), local_new)
 
 
 def _hydrate_from_durable() -> None:
@@ -159,6 +177,7 @@ def get_conn(name: str):
 
 
 def init_db() -> None:
+    _migrate_renamed_dbs()
     _hydrate_from_durable()
     # main.db: users + logs
     with get_conn("main") as conn:
@@ -187,6 +206,21 @@ def init_db() -> None:
         existing_cols = {row["name"] for row in conn.execute("PRAGMA table_info(logs)").fetchall()}
         if "ip_address" not in existing_cols:
             conn.execute("ALTER TABLE logs ADD COLUMN ip_address TEXT")
+        # Migration: a suspended account cannot sign in until it is reactivated.
+        user_cols = {row["name"] for row in conn.execute("PRAGMA table_info(users)").fetchall()}
+        if "suspended" not in user_cols:
+            conn.execute("ALTER TABLE users ADD COLUMN suspended INTEGER NOT NULL DEFAULT 0")
+        # Admin settings (the database connection and its queries — see db_import.py).
+        conn.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
+        # Each CONTROLLER's employees (see auth.team_tokens). Kept apart from
+        # users so an Account-sheet upload, which replaces users, keeps them.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS controller_members (
+                controller TEXT NOT NULL COLLATE NOCASE,
+                member TEXT NOT NULL COLLATE NOCASE,
+                PRIMARY KEY (controller, member)
+            )
+        """)
         # Bootstrap admin so the app is reachable before any Account sheet
         # has been uploaded. No credential is hardcoded in source: set
         # BOOTSTRAP_ADMIN_USERNAME / BOOTSTRAP_ADMIN_PASSWORD to choose your
@@ -251,14 +285,68 @@ def get_user(username: str) -> dict | None:
 
 
 def replace_users(users: list[dict]) -> None:
+    """Replace every account with `users` (an Account-sheet upload). A user's
+    `suspended` is None when the sheet has no Status column; they then keep
+    the suspension (or not) their account already had."""
     with get_conn("main") as conn:
+        was_suspended = {r["username"].lower() for r in conn.execute("SELECT username FROM users WHERE suspended").fetchall()}
+        rows = [{**u, "suspended": int(u["username"].lower() in was_suspended if u.get("suspended") is None else bool(u["suspended"]))}
+                for u in users]
+        if not any(r["authorization"] == "ADMIN" and not r["suspended"] for r in rows):
+            raise ValueError("Include at least one active (not suspended) ADMIN account in the Account sheet.")
         conn.execute("DELETE FROM users")
         conn.executemany(
-            "INSERT INTO users (username, password, authorization, name, job, location) "
-            "VALUES (:username, :password, :authorization, :name, :job, :location)",
-            users,
+            "INSERT INTO users (username, password, authorization, name, job, location, suspended) "
+            "VALUES (:username, :password, :authorization, :name, :job, :location, :suspended)",
+            rows,
         )
     sync_now()
+
+
+def _check_other_active_admin(conn, account: dict) -> None:
+    """Raise ValueError when `account` is the only active ADMIN — suspending,
+    removing or demoting it would leave nobody able to open the Admin page."""
+    if str(account["authorization"]).upper() != "ADMIN":
+        return
+    others = conn.execute(
+        "SELECT COUNT(*) AS c FROM users WHERE authorization = 'ADMIN' AND NOT suspended "
+        "AND username != ? COLLATE NOCASE",
+        (account["username"],),
+    ).fetchone()
+    if others["c"] == 0:
+        raise ValueError("Keep at least one active ADMIN account.")
+
+
+def set_user_suspended(username: str, suspended: bool) -> dict:
+    """Suspend (or reactivate) an account; returns it as it was before. A
+    suspended user cannot sign in, and is signed out on their next click."""
+    with get_conn("main") as conn:
+        row = conn.execute("SELECT * FROM users WHERE username = ? COLLATE NOCASE", (username,)).fetchone()
+        if not row:
+            raise ValueError("User not found.")
+        account = dict(row)
+        if suspended:
+            _check_other_active_admin(conn, account)
+        conn.execute("UPDATE users SET suspended = ? WHERE username = ?", (int(suspended), account["username"]))
+    sync_now()
+    return account
+
+
+def delete_user(username: str) -> dict:
+    """Remove an account, and take it out of every controller team (its own
+    team, if a CONTROLLER, and any it was placed in); returns it as it was."""
+    with get_conn("main") as conn:
+        row = conn.execute("SELECT * FROM users WHERE username = ? COLLATE NOCASE", (username,)).fetchone()
+        if not row:
+            raise ValueError("User not found.")
+        account = dict(row)
+        if not account["suspended"]:
+            _check_other_active_admin(conn, account)
+        conn.execute("DELETE FROM users WHERE username = ?", (account["username"],))
+        conn.execute("DELETE FROM controller_members WHERE controller = ? OR member = ?",
+                     (account["username"], account["username"]))
+    sync_now()
+    return account
 
 
 def save_user(user: dict, original_username: str = "") -> str:
@@ -285,14 +373,8 @@ def save_user(user: dict, original_username: str = "") -> str:
         ).fetchone()
         if clash and (not current or clash["username"].lower() != current["username"].lower()):
             raise ValueError("That username is already in use.")
-        if current and str(current["authorization"]).upper() == "ADMIN" and user["authorization"] != "ADMIN":
-            others = conn.execute(
-                "SELECT COUNT(*) AS c FROM users WHERE authorization = 'ADMIN' "
-                "AND username != ? COLLATE NOCASE",
-                (current["username"],),
-            ).fetchone()
-            if others["c"] == 0:
-                raise ValueError("Keep at least one ADMIN account.")
+        if current and not current["suspended"] and user["authorization"] != "ADMIN":
+            _check_other_active_admin(conn, current)
         fields = (
             username, user["authorization"], user["name"], user["job"], user["location"],
         )
@@ -309,6 +391,9 @@ def save_user(user: dict, original_username: str = "") -> str:
                     "WHERE username = ? COLLATE NOCASE",
                     (*fields, current["username"]),
                 )
+            if username.lower() != current["username"].lower():  # renamed: carry their team memberships over
+                conn.execute("UPDATE OR REPLACE controller_members SET controller = ? WHERE controller = ?", (username, current["username"]))
+                conn.execute("UPDATE OR REPLACE controller_members SET member = ? WHERE member = ?", (username, current["username"]))
             action = "USER_UPDATED"
         else:
             if not password:
@@ -323,7 +408,52 @@ def save_user(user: dict, original_username: str = "") -> str:
     return action
 
 
+def all_teams() -> dict[str, list[str]]:
+    """{controller username (lower-case): [employee usernames]} for every CONTROLLER."""
+    teams: dict[str, list[str]] = {}
+    with get_conn("main") as conn:
+        for r in conn.execute("SELECT controller, member FROM controller_members ORDER BY member").fetchall():
+            teams.setdefault(r["controller"].lower(), []).append(r["member"])
+    return teams
+
+
+def get_team(controller: str) -> list[str]:
+    return all_teams().get(controller.lower(), [])
+
+
+def set_team(controller: str, members: list[str]) -> list[str]:
+    """Replace `controller`'s employees; returns them as saved (deduplicated,
+    without the controller itself)."""
+    seen: dict[str, str] = {}
+    for m in members:
+        m = m.strip()
+        if m and m.lower() != controller.lower():
+            seen.setdefault(m.lower(), m)
+    with get_conn("main") as conn:
+        conn.execute("DELETE FROM controller_members WHERE controller = ?", (controller,))
+        conn.executemany("INSERT INTO controller_members (controller, member) VALUES (?, ?)",
+                         [(controller, m) for m in seen.values()])
+    sync_now()
+    return sorted(seen.values(), key=str.lower)
+
+
 # ----------------------------------------------------------------- logs ---
+
+# Log times are stored in UTC (the 7-day cutoff below compares them as text)
+# and shown in UAE time, which is UTC+4 all year — the UAE has no daylight saving.
+UAE_TZ = timezone(timedelta(hours=4))
+
+
+def uae_time(utc_iso: str) -> str:
+    """A stored log time ('2026-10-21T11:31:01Z') in UAE time ('2026-10-21 15:31:01')."""
+    try:
+        t = datetime.fromisoformat(str(utc_iso).replace("Z", "+00:00"))
+    except ValueError:
+        return utc_iso or ""
+    if t.tzinfo is None:
+        t = t.replace(tzinfo=timezone.utc)
+    return t.astimezone(UAE_TZ).strftime("%Y-%m-%d %H:%M:%S")
+
 
 def add_log(username: str, role: str, action: str, details: str = "", ip_address: str = "") -> None:
     with get_conn("main") as conn:
@@ -333,10 +463,13 @@ def add_log(username: str, role: str, action: str, details: str = "", ip_address
         )
 
 
-def list_logs(limit: int = 500) -> list[dict]:
+def recent_logs(days: int = 7) -> list[dict]:
+    """Every log entry from the last `days` days, newest first — for the
+    Admin page. Times are stored as UTC ISO strings, so they compare as text."""
+    cutoff = (datetime.utcnow() - timedelta(days=days)).isoformat(timespec="seconds") + "Z"
     with get_conn("main") as conn:
         rows = conn.execute(
-            "SELECT * FROM logs ORDER BY id DESC LIMIT ?", (limit,)
+            "SELECT * FROM logs WHERE time >= ? ORDER BY id DESC", (cutoff,)
         ).fetchall()
     return [dict(r) for r in rows]
 
@@ -346,6 +479,19 @@ def all_logs() -> list[dict]:
     with get_conn("main") as conn:
         rows = conn.execute("SELECT * FROM logs ORDER BY id ASC").fetchall()
         return [dict(r) for r in rows]
+
+
+# ------------------------------------------------------------- settings ---
+
+def get_settings() -> dict[str, str]:
+    with get_conn("main") as conn:
+        return {r["key"]: r["value"] for r in conn.execute("SELECT key, value FROM settings").fetchall()}
+
+
+def save_settings(values: dict[str, str]) -> None:
+    with get_conn("main") as conn:
+        conn.executemany("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", list(values.items()))
+    sync_now()
 
 
 # -------------------------------------------------------------- records ---
@@ -412,6 +558,23 @@ def _normalize_stored_columns(survey_type: str, records: list[dict]) -> None:
             r["data"] = layout.apply(r["data"])
 
 
+_period_cache: dict[str, tuple[list, str | None]] = {}
+
+
+def current_period(survey_type: str) -> str | None:
+    """The newest quarter (Q#_YYYY) in `survey_type`'s data, or None if it
+    has no quarter columns. Cached until the data changes."""
+    from .calc_common import get_periods
+
+    records = all_records(survey_type)
+    cached = _period_cache.get(survey_type)
+    if cached and cached[0] is records:
+        return cached[1]
+    periods = get_periods(dict.fromkeys(k for r in records for k in r["data"]))
+    _period_cache[survey_type] = (records, periods[-1] if periods else None)
+    return _period_cache[survey_type][1]
+
+
 def records_by_frame(survey_type: str, frame_id: str) -> list[dict]:
     target = frame_id.strip().lower()
     out = []
@@ -436,6 +599,13 @@ def distinct_frame_ids(survey_type: str, limit: int = 200) -> list[str]:
 def record_count(survey_type: str) -> int:
     with get_conn(survey_type) as conn:
         return conn.execute("SELECT COUNT(*) AS c FROM records").fetchone()["c"]
+
+
+def last_load(survey_type: str) -> tuple[str, str]:
+    """(source_file, uploaded_at) of the data now loaded — ("", "") if none."""
+    with get_conn(survey_type) as conn:
+        row = conn.execute("SELECT source_file, uploaded_at FROM records LIMIT 1").fetchone()
+    return (row["source_file"] or "", row["uploaded_at"] or "") if row else ("", "")
 
 
 def annual_isic_by_frame(source: str, frame_id: str) -> dict:

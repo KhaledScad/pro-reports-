@@ -1,5 +1,5 @@
 """
-Admin-only downloadable XLSX variable reference for QES and FISQ.
+Admin-only downloadable XLSX variable reference for QES and FDI.
 
 Unlike `guide.html` (deliberately worded for end users, with no raw
 spreadsheet column names), this file is FOR the people preparing the
@@ -22,7 +22,7 @@ from openpyxl.utils import get_column_letter
 from openpyxl.worksheet.worksheet import Worksheet
 
 from .calculations_qes import DETAIL_GROUPS as QES_DETAIL_GROUPS
-from .calculations_fisq import COMPONENT_GROUPS as FISQ_COMPONENT_GROUPS
+from .calculations_fdi import COMPONENT_GROUPS as FDI_COMPONENT_GROUPS
 from .dummy_data import dummy_rows
 
 HEADER_FILL = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
@@ -99,7 +99,7 @@ QES_IDENTIFICATION_ROWS = [
     *ASSIGNMENT_ROWS,
 ]
 
-FISQ_IDENTIFICATION_ROWS = [
+FDI_IDENTIFICATION_ROWS = [
     ("Identification", "FRAMEID (Right_FRAMEID, the merged copy, is ignored)", "Frame ID", "رقم الإطار",
      "Uniquely identifies the establishment, one row per Frame ID. Used to find every quarter's figures for it, and to search on the Calculation/Comparison pages.",
      "يحدد المنشأة بشكل فريد، صف واحد لكل رقم إطار. يُستخدم لاسترجاع أرقام كل ربع لها، وللبحث في صفحتي الاحتساب والمقارنة.", "Both"),
@@ -121,8 +121,8 @@ FISQ_IDENTIFICATION_ROWS = [
 
 QES_ROWS = [
     ("Revenue, expenses & cost of goods", "Total_Revenue", "Revenue", "الإيرادات",
-     "Total revenue for the quarter. Feeds Gross output, Profit, Profit %.",
-     "إجمالي الإيرادات خلال الربع. يغذي الإنتاج الإجمالي، الربح، ونسبة الربح.", "Both"),
+     "Total revenue for the quarter. Feeds Total production, Profit, Profit %.",
+     "إجمالي الإيرادات خلال الربع. يغذي إجمالي الإنتاج، الربح، ونسبة الربح.", "Both"),
     ("Revenue, expenses & cost of goods", "Total_Expenses", "Expenditure", "المصروفات",
      "Total expenses for the quarter. Feeds Profit, and Intermediate consumption for every activity except Industry. For Trade it already includes the net purchases (Raw material) — the Trade Profit formula backs them out again to avoid double-counting.",
      "إجمالي المصروفات خلال الربع. يغذي الربح، والاستهلاك الوسيط لكل الأنشطة عدا الصناعة. بالنسبة للتجارة، يتضمن أصلاً صافي المشتريات (المواد الخام) — وتطرحها معادلة ربح التجارة مرة أخرى لتفادي احتسابها مرتين.", "Both"),
@@ -130,12 +130,12 @@ QES_ROWS = [
      "Feeds Intermediate consumption: Operations cost + Bank charges + Raw material for Industry, Operations cost + Expenditure for every other activity.",
      "يغذي الاستهلاك الوسيط: تكلفة التشغيل + العمولات البنكية + المواد الخام للصناعة، وتكلفة التشغيل + المصروفات لكل نشاط آخر.", "Both"),
     ("Revenue, expenses & cost of goods", "RAW_Material", "Raw material", "المواد الخام",
-     "For Industry: raw material used in production — feeds Intermediate consumption. For Trade: net purchases for resale — feeds Gross output and Profit. Not used for Construction/Transport/Other.",
-     "للصناعة: المواد الخام المستخدمة في الإنتاج — تغذي الاستهلاك الوسيط. للتجارة: صافي المشتريات لغرض إعادة البيع — تغذي الإنتاج الإجمالي والربح. لا تُستخدم للإنشاءات/النقل/أخرى.", "Both"),
+     "For Industry: raw material used in production — feeds Intermediate consumption. For Trade: net purchases for resale — feeds Total production and Profit. Not used for Construction/Transport/Other.",
+     "للصناعة: المواد الخام المستخدمة في الإنتاج — تغذي الاستهلاك الوسيط. للتجارة: صافي المشتريات لغرض إعادة البيع — تغذي إجمالي الإنتاج والربح. لا تُستخدم للإنشاءات/النقل/أخرى.", "Both"),
     ("Revenue, expenses & cost of goods", "Total_Finished_Goods_Begining_Of_period",
      "Inventory start", "المخزون، أول المدة",
-     "Combined finished-goods + work-in-progress inventory value at the start of the quarter (Trade & Industry only). Feeds Gross output; checked against the previous quarter's Inventory end in the Inventory continuity check.",
-     "قيمة مخزون البضاعة التامة وغير التامة الصنع مجتمعة في بداية الربع (للتجارة والصناعة فقط). يغذي الإنتاج الإجمالي؛ ويُقارَن بمخزون آخر المدة للربع السابق في فحص استمرارية المخزون.", "Both"),
+     "Combined finished-goods + work-in-progress inventory value at the start of the quarter (Trade & Industry only). Feeds Total production; checked against the previous quarter's Inventory end in the Inventory continuity check.",
+     "قيمة مخزون البضاعة التامة وغير التامة الصنع مجتمعة في بداية الربع (للتجارة والصناعة فقط). يغذي إجمالي الإنتاج؛ ويُقارَن بمخزون آخر المدة للربع السابق في فحص استمرارية المخزون.", "Both"),
     ("Revenue, expenses & cost of goods", "Total_Finished_Goods_End_of_period",
      "Inventory end", "المخزون، آخر المدة",
      "Same as Inventory start, at the close of the quarter.",
@@ -148,8 +148,8 @@ QES_ROWS = [
      "يغذي الاستهلاك الوسيط للصناعة (تكلفة التشغيل + العمولات البنكية + المواد الخام)؛ ويظهر أيضاً في تفاصيل المصروفات.", "Both"),
     ("Revenue, expenses & cost of goods", "FUND_FOR_RESEARCH", "—", "—", _NOT_USED_EN, _NOT_USED_AR, "—"),
     ("Employment", "Employee_Salary", "Total compensation", "إجمالي التعويضات",
-     "Total employee compensation for the quarter. Feeds Average compensation (÷ Employees ÷ 3).",
-     "إجمالي تعويضات الموظفين خلال الربع. يغذي متوسط التعويضات (÷ عدد الموظفين ÷ 3).", "Both"),
+     "Total employee compensation for the quarter. Feeds Average compensation (÷ Employees ÷ 3). Flagged when it is more than Expenditure (Total_Expenses), since compensation is part of expenditure, and when it is more than Total production.",
+     "إجمالي تعويضات الموظفين خلال الربع. يغذي متوسط التعويضات (÷ عدد الموظفين ÷ 3). يُشار إليه بتنبيه عندما يكون أكبر من المصروفات (Total_Expenses)، لأن التعويضات جزء من المصروفات، وعندما يكون أكبر من إجمالي الإنتاج.", "Both"),
     ("Employment", "TOTAL_EMPLOYEES", "Employees", "عدد الموظفين",
      "Headcount for the quarter. Feeds Average compensation; also shown in the Employee comparison table with the period-over-period change (count and %).",
      "عدد الموظفين خلال الربع. يغذي متوسط التعويضات؛ ويظهر أيضاً في جدول مقارنة الموظفين مع التغيّر بين الفترات (بالعدد والنسبة).", "Both"),
@@ -161,7 +161,7 @@ QES_ROWS = [
      "Free-text auditor note shown alongside the inventory figures.", "ملاحظة نصية من المدقق تظهر بجانب أرقام المخزون.", "Calculation"),
 ]
 
-FISQ_ROWS = [
+FDI_ROWS = [
     ("Assets", "Total_of_Current_Assets", "Current assets", "الأصول المتداولة",
      "Total current assets at the end of the quarter. Feeds Total assets.",
      "إجمالي الأصول المتداولة في نهاية الربع. يغذي إجمالي الأصول.", "Both"),
@@ -176,13 +176,21 @@ FISQ_ROWS = [
     ("Equity", "Total_Equity", "Equity in form", "حقوق الملكية في الاستمارة",
      "Total equity as reported in the form: the figure Calculated equity (Total assets − Total liabilities) is checked against.",
      "إجمالي حقوق الملكية كما ورد في الاستمارة: الرقم الذي تُقارن به حقوق الملكية المحتسبة (إجمالي الأصول − إجمالي المطلوبات).", "Both"),
+    ("Equity", "EQ_Q7_TOTAL_PREV", "7 Total equity — previous period", "7 إجمالي حقوق الملكية — الفترة السابقة",
+     "Total equity reported for the previous period. Shown under Equity in form on the calculation and comparison pages; not part of any check.",
+     "إجمالي حقوق الملكية المُبلّغ عنه للفترة السابقة. يظهر تحت حقوق الملكية في الاستمارة في صفحتي الاحتساب والمقارنة؛ لا يدخل في أي فحص.", "Both"),
+    ("Equity", "EQ_Q7_7_1", "7.1 Equity item 7.1", "7.1 بند حقوق الملكية 7.1",
+     "Equity item 7.1. Together with 7.2 and 7.3 it should add up to Total_Equity (the 7.1 + 7.2 + 7.3 check).",
+     "بند حقوق الملكية 7.1. يجب أن يساوي مع البندين 7.2 و7.3 إجمالي حقوق الملكية (فحص 7.1 + 7.2 + 7.3).", "Both"),
     ("Equity", "7.2_Paid-up _Capital_Stock", "7.2 Paid-up capital", "7.2 رأس المال المدفوع",
-     "Paid-up capital. Together with 7.3 it should add up to Total_Equity (the 7.2 + 7.3 check).",
-     "رأس المال المدفوع. يجب أن يساوي مع البند 7.3 إجمالي حقوق الملكية (فحص 7.2 + 7.3).", "Both"),
-    ("Equity", "7.3_Other_Equity", "7.3 Other equity", "7.3 حقوق ملكية أخرى",
-     "Other equity. See 7.2.", "حقوق ملكية أخرى. انظر 7.2.", "Both"),
+     "Paid-up capital. See 7.1.", "رأس المال المدفوع. انظر 7.1.", "Both"),
+    ("Equity", "7.3_Other_Equity (or EQ_Q7_7_3_VAL)", "7.3 Other equity", "7.3 حقوق ملكية أخرى",
+     "Other equity. See 7.1.", "حقوق ملكية أخرى. انظر 7.1.", "Both"),
+    ("Equity", "EQ_Q7_7_3_VAL_PREV", "7.3 Other equity — previous period", "7.3 حقوق ملكية أخرى — الفترة السابقة",
+     "Other equity reported for the previous period. Shown under 7.3 on the calculation and comparison pages; not part of any check.",
+     "حقوق الملكية الأخرى المُبلّغ عنها للفترة السابقة. تظهر تحت البند 7.3 في صفحتي الاحتساب والمقارنة؛ لا تدخل في أي فحص.", "Both"),
     ("Older column names (still accepted)",
-     "Current_Assets, Non_Current_Assets, Current_Liabilities, Non_Current_Liabilities, Equity_In_Form, Equity_7_2, Equity_7_3 — and their _End_of_period / _Begining_Of_period forms",
+     "Current_Assets, Non_Current_Assets, Current_Liabilities, Non_Current_Liabilities, Equity_In_Form, Equity_7_1, Equity_7_2, Equity_7_3 — and their _End_of_period / _Begining_Of_period forms",
      "—", "—",
      "Read only when the 20-10 name is missing, so files in the earlier layout still work. The _Begining_Of_period forms also switch on the Beginning vs end of period table.",
      "تُقرأ فقط عند غياب اسم 20-10، لتبقى الملفات بالتخطيط السابق صالحة. كما تُفعّل صيغ بداية المدة جدول بداية المدة مقابل نهاية المدة.", "Both"),
@@ -190,8 +198,8 @@ FISQ_ROWS = [
 
 ANNUAL_ISIC_ROWS = [
     ("Frame_ID (or FRAME, ID, ESTABLISHMENTID, ESTABLISHMENTNUMBER)", "Frame ID", "رقم الإطار",
-     "Same Frame ID as the QES/FISQ quarterly files — used to match this annual record to the establishment.",
-     "نفس رقم الإطار المستخدم في ملفات QES/FISQ الربعية — يُستخدم لمطابقة هذا السجل السنوي بالمنشأة.", "Comparison"),
+     "Same Frame ID as the QES/FDI quarterly files — used to match this annual record to the establishment.",
+     "نفس رقم الإطار المستخدم في ملفات QES/FDI الربعية — يُستخدم لمطابقة هذا السجل السنوي بالمنشأة.", "Comparison"),
     ("{YYYY}_ISIC4 — one column per year, e.g. 2023_ISIC4, 2024_ISIC4, 2025_ISIC4",
      "(year column, e.g. \"2025\")", "(عمود السنة، مثل \"2025\")",
      "The ISIC4 code reported for that year. The tool reads every {YYYY}_ISIC4 column present, sorts them by year, and shows the last 3 on the Comparison page — flagging red the moment the value changes from one year to the next.",
@@ -272,24 +280,24 @@ _PERIOD_NOTE_AR = ("تحمل الأعمدة الربعية الربع في بد�
                     "فتُنسب سجلاً سجلاً حسب قيم YEAR / QUARTER الخاصة بها. "
                     "تعرض الورقة الأخيرة تخطيط الرفع بالضبط مع سجلات تجريبية.")
 
-_LAYOUT_NOTE_EN = ("Exact upload layout from \"QES and FISQ varibles 20-10.xlsx\", column for column, with 5 dummy records. "
+_LAYOUT_NOTE_EN = ("Exact upload layout from \"QES and FDI varibles 20-10.xlsx\", column for column, with 5 dummy records. "
                     "Upload this sheet as it is to try the tool; every figure is made up.")
-_LAYOUT_NOTE_AR = ("تخطيط الرفع كما في ملف \"QES and FISQ varibles 20-10.xlsx\" عموداً بعمود، مع 5 سجلات تجريبية. "
+_LAYOUT_NOTE_AR = ("تخطيط الرفع كما في ملف \"QES and FDI varibles 20-10.xlsx\" عموداً بعمود، مع 5 سجلات تجريبية. "
                     "يمكن رفع هذه الورقة كما هي لتجربة الأداة؛ كل الأرقام وهمية.")
 
-_ANNUAL_NOTE_EN = ("This sheet is not part of the QES/FISQ upload file — it's the separate annual AES / FIS "
+_ANNUAL_NOTE_EN = ("This sheet is not part of the QES/FDI upload file — it's the separate annual AES / FIS "
                     "reference file (Admin panel → AES / FIS upload cards) used only for the ISIC "
                     "classification-stability cross-check on the Comparison page.")
-_ANNUAL_NOTE_AR = ("هذه الورقة ليست جزءاً من ملف رفع QES/FISQ — بل هي ملف AES / FIS السنوي المرجعي المنفصل "
+_ANNUAL_NOTE_AR = ("هذه الورقة ليست جزءاً من ملف رفع QES/FDI — بل هي ملف AES / FIS السنوي المرجعي المنفصل "
                     "(لوحة الإدارة ← بطاقتا رفع AES / FIS) المستخدم فقط لمطابقة استقرار تصنيف ISIC4 "
                     "في صفحة المقارنة.")
 
 
 _DETAIL_DESC_EN = "Optional survey-form line item, shown for reference on the Calculation/Comparison pages — read-only, does not feed any formula above."
 _DETAIL_DESC_AR = "بند اختياري من استمارة المسح، يُعرض للمرجعية في صفحتي الاحتساب والمقارنة — للعرض فقط، ولا يدخل في أي معادلة أعلاه."
-_FISQ_ITEM_DESC_EN = ("Survey-form item, shown with its previous-period value (the _PREV column) for reference. It is part of "
+_FDI_ITEM_DESC_EN = ("Survey-form item, shown with its previous-period value (the _PREV column) for reference. It is part of "
                        "the total above, never added into it.")
-_FISQ_ITEM_DESC_AR = "بند من استمارة المسح، يُعرض مع قيمته للفترة السابقة (عمود _PREV) للمرجعية. هو جزء من الإجمالي أعلاه، ولا يُضاف إليه."
+_FDI_ITEM_DESC_AR = "بند من استمارة المسح، يُعرض مع قيمته للفترة السابقة (عمود _PREV) للمرجعية. هو جزء من الإجمالي أعلاه، ولا يُضاف إليه."
 
 _DETAIL_NOTE_EN = ("Every column below is OPTIONAL and read-only: if present, it appears in a collapsible "
                     "\"Survey form details\" section on the Calculation/Comparison pages, purely for reference. "
@@ -309,23 +317,23 @@ def _qes_detail_rows() -> list[tuple]:
     return rows
 
 
-def _fisq_detail_rows() -> list[tuple]:
+def _fdi_detail_rows() -> list[tuple]:
     rows = []
-    for g in FISQ_COMPONENT_GROUPS:
+    for g in FDI_COMPONENT_GROUPS:
         for label_en, label_ar, codes in g["components"]:
             tech = f"{codes[0]} (previous period: {codes[0]}_PREV)"
-            rows.append((g["title_en"], tech, label_en, label_ar, _FISQ_ITEM_DESC_EN, _FISQ_ITEM_DESC_AR, "Both"))
+            rows.append((g["title_en"], tech, label_en, label_ar, _FDI_ITEM_DESC_EN, _FDI_ITEM_DESC_AR, "Both"))
     return rows
 
 
 def build_workbook(survey_type: str) -> bytes:
-    """survey_type: 'QES' or 'FISQ'. Returns the .xlsx file bytes."""
+    """survey_type: 'QES' or 'FDI'. Returns the .xlsx file bytes."""
     survey_type = survey_type.upper()
     wb = Workbook()
     ws = wb.active
     ws.title = survey_type
 
-    rows = (QES_IDENTIFICATION_ROWS + QES_ROWS) if survey_type == "QES" else (FISQ_IDENTIFICATION_ROWS + FISQ_ROWS)
+    rows = (QES_IDENTIFICATION_ROWS + QES_ROWS) if survey_type == "QES" else (FDI_IDENTIFICATION_ROWS + FDI_ROWS)
     _write_sheet(ws, rows, _PERIOD_NOTE_EN, _PERIOD_NOTE_AR)
 
     ws2 = wb.create_sheet("AES-FIS annual ISIC")
@@ -333,7 +341,7 @@ def build_workbook(survey_type: str) -> bytes:
     _write_sheet(ws2, annual_rows, _ANNUAL_NOTE_EN, _ANNUAL_NOTE_AR)
 
     ws3 = wb.create_sheet("Survey form details (optional)")
-    detail_rows = _qes_detail_rows() if survey_type == "QES" else _fisq_detail_rows()
+    detail_rows = _qes_detail_rows() if survey_type == "QES" else _fdi_detail_rows()
     _write_sheet(ws3, detail_rows, _DETAIL_NOTE_EN, _DETAIL_NOTE_AR)
 
     _write_layout_sheet(wb.create_sheet("Upload layout (dummy data)"), survey_type)

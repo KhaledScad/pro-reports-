@@ -21,8 +21,9 @@
         <a class="btn small" href="/survey/{{ a.type|lower }}">{{ t('calculations') }}</a>
         <a class="btn small ghost" href="/compare/{{ a.type|lower }}">{{ t('comparison') }}</a>
       </div>
+      {% set team = '_team' if user.authorization == 'CONTROLLER' else '' %}
       <div class="chip-label">
-        {% if a.period %}{{ t('assigned_frame_ids_in') }} {{ a.period|period_label(lang) }}{% else %}{{ t('assigned_frame_ids') }}{% endif %}
+        {% if a.period %}{{ t('assigned_frame_ids' ~ team ~ '_in') }} {{ a.period|period_label(lang) }}{% else %}{{ t('assigned_frame_ids' ~ team) }}{% endif %}
         ({{ a.frame_ids|length }})
       </div>
       {% if a.frame_ids %}
@@ -30,12 +31,35 @@
         {% for f in a.frame_ids %}<span class="chip">{{ f }}</span>{% endfor %}
       </div>
       {% else %}
-      <p class="muted small">{{ t('no_frame_ids') }}</p>
+      <p class="muted small">{{ t('no_frame_ids' ~ team) }}</p>
       {% endif %}
     </div>
     {% endfor %}
   </div>
 </div>
+
+{% if team is not none %}
+<div class="card" id="team">
+  <h3>{{ t('your_team') }} ({{ team|length }})</h3>
+  <p class="muted">{{ t('your_team_text') }}</p>
+  {% if team %}
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>{{ t('name') }}</th><th>{{ t('username') }}</th><th>{{ t('job') }}</th>
+        {% for a in access %}<th>{{ a.type }} {{ t('frame_ids') }}{% if a.period %}<div class="muted small">{{ a.period|period_label(lang) }}</div>{% endif %}</th>{% endfor %}</tr></thead>
+      <tbody>
+        {% for m in team %}
+        <tr><td>{{ m.name or '-' }}</td><td>{{ m.username }}</td><td>{{ m.job or '-' }}</td>
+          {% for a in access %}<td>{{ m.counts[a.type] }}</td>{% endfor %}</tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <p class="muted small">{{ t('your_team_none') }}</p>
+  {% endif %}
+</div>
+{% endif %}
 
 {% if is_admin %}
 <div class="card">

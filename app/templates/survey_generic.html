@@ -2,7 +2,7 @@
 {% block title %}{{ survey_type }} - Proactive Reporting{% endblock %}
 {% block content %}
 <h2>{{ survey_type }} &mdash; {{ survey_labels[survey_type] }}</h2>
-<div class="notice">Calculation logic for {{ survey_type }} is not implemented yet &mdash; this page uploads, stores, and browses the raw record fields only, same as QES/FISQ's Excel intake.</div>
+<div class="notice">Calculation logic for {{ survey_type }} is not implemented yet &mdash; this page uploads, stores, and browses the raw record fields only, same as QES/FDI's Excel intake.</div>
 
 <div class="card">
   <form method="get" action="/survey/{{ survey_type|lower }}" class="search-form">

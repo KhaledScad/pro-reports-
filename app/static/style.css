@@ -72,10 +72,11 @@ p.muted, .muted { color: var(--muted); }
 .count { font-size: 26px; font-weight: 800; margin: 6px 0; }
 
 label { display: block; font-weight: 700; margin: 12px 0 6px; font-size: 14px; }
-input[type="text"], input[type="password"], input[type="search"], input:not([type]), select, input[type="file"] {
+input[type="text"], input[type="password"], input[type="search"], input[type="number"], input:not([type]), select, input[type="file"], textarea {
   width: 100%; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; font-size: 14px;
 }
-input:focus, select:focus { outline: 3px solid rgba(67,124,220,.18); border-color: var(--brand); }
+textarea { font-family: Consolas, "Courier New", monospace; font-size: 13px; resize: vertical; }
+input:focus, select:focus, textarea:focus { outline: 3px solid rgba(67,124,220,.18); border-color: var(--brand); }
 
 button, .btn {
   border: 0; background: var(--brand); color: #fff; padding: 10px 16px; border-radius: 10px;
@@ -101,6 +102,7 @@ button, .btn {
 .pill-admin { background: #fee2e2; color: #991b1b; }
 .pill-user { background: #e0f2fe; color: #075985; }
 .pill-supervisor { background: #ede9fe; color: #5b21b6; }
+.pill-controller { background: #fef3c7; color: #92400e; }
 
 .search-form { display: flex; flex-direction: column; }
 /* Frame ID / License Number searchable dropdowns (input + datalist). */
@@ -160,6 +162,13 @@ body.rtl input.combo { padding-right: 12px; padding-left: 34px; background-posit
 .user-table tbody td select { padding: 6px 8px; font-size: 13px; min-width: 130px; }
 .user-table td input[name="name"],
 .user-table td input[name="job"] { min-width: 200px; }
+.user-table .user-actions { display: flex; gap: 6px; flex-wrap: nowrap; }
+.user-table tbody tr.user-suspended td { background: #f9fafb; }
+.user-table tbody tr.user-suspended td input,
+.user-table tbody tr.user-suspended td select { color: var(--muted); }
+.pill-active { background: #ecfdf5; color: #065f46; }
+.pill-suspended { background: #fef2f2; color: #991b1b; }
+.btn.ghost.danger { background: #fef2f2; color: var(--danger); border-color: #fecaca; }
 .user-extend-hint { margin: 8px 0 0; }
 
 /* ---- RTL ---- */

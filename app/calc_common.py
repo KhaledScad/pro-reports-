@@ -1,5 +1,5 @@
 """
-Shared helpers used by both the QES and FISQ calculation engines. This is a
+Shared helpers used by both the QES and FDI calculation engines. This is a
 direct port of the final (v43/v45/v47) header-matching logic from the
 original HTML tool: columns can either be plain (`Total_Revenue`) or
 period-prefixed wide columns (`Q1_2026_Total_Revenue`), and lookups fall
@@ -155,7 +155,7 @@ _YEAR_ISIC_RE = re.compile(r"^(\d{4})_ISIC4$", re.IGNORECASE)
 
 def annual_isic_series(row: dict) -> list[tuple[str, str]]:
     """Extract every {YYYY}_ISIC4 wide column (the annual-file counterpart
-    of QES/FISQ's {Q#_YYYY}_... columns), sorted oldest-to-newest year."""
+    of QES/FDI's {Q#_YYYY}_... columns), sorted oldest-to-newest year."""
     out = []
     for k in row_keys(row):
         m = _YEAR_ISIC_RE.match(clean(k))
@@ -196,14 +196,14 @@ def latest_text(row: dict, suffixes) -> str:
 
 
 def record_meta(row: dict, lang: str = "en") -> dict:
-    """Common identifying fields shown above any QES/FISQ calculation, each
+    """Common identifying fields shown above any QES/FDI calculation, each
     from the newest quarter that has it — older quarters' blocks in a merged
     file often leave names and assignments empty."""
     def pick(first: list[str], second: list[str] = ()) -> str:
         return latest_text(row, first) or (latest_text(row, second) if second else "")
 
     ar = lang == "ar"
-    # FISQ carries plain AUDITOR_NAME / ENUMERATOR_NAME (no _EN/_AR pair), tried last.
+    # FDI carries plain AUDITOR_NAME / ENUMERATOR_NAME (no _EN/_AR pair), tried last.
     return {
         "frame_id": frame_id_of(row),
         "establishment_name": pick(["ESTABLISHMENT_NAME"]),

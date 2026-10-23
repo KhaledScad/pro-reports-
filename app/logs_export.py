@@ -1,4 +1,5 @@
-"""Admin-only downloadable XLSX export of the full activity log."""
+"""Admin-only downloadable XLSX exports: the full activity log and the user
+accounts list."""
 from __future__ import annotations
 
 import io
@@ -7,36 +8,47 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+from .database import uae_time
+
 HEADER_FILL = PatternFill(start_color="1F2937", end_color="1F2937", fill_type="solid")
 HEADER_FONT = Font(color="FFFFFF", bold=True)
 WRAP = Alignment(wrap_text=True, vertical="top")
 
-COLUMNS = ["Time (UTC)", "Username", "Role", "Action", "Details", "IP address"]
-COLUMN_WIDTHS = [22, 20, 16, 30, 60, 16]
+# (column title, width, record key)
+LOG_COLUMNS = [("Time (UAE)", 22, "time"), ("Username", 20, "username"), ("Name", 28, "name"), ("Role", 16, "role"),
+               ("Action", 30, "action"), ("Details", 60, "details"), ("IP address", 16, "ip_address")]
+# Passwords are deliberately left out, as on the Admin page.
+USER_COLUMNS = [("Username", 22, "username"), ("Authorization", 16, "authorization"), ("Name", 32, "name"),
+                ("Job", 32, "job"), ("Location", 20, "location"), ("Status", 14, "status"), ("Employees", 40, "employees")]
 
 
-def build_logs_workbook(logs: list[dict]) -> bytes:
+def _build_workbook(sheet_title: str, columns: list[tuple[str, int, str]], records: list[dict]) -> bytes:
     wb = Workbook()
     ws = wb.active
-    ws.title = "Activity log"
+    ws.title = sheet_title
 
-    for i, width in enumerate(COLUMN_WIDTHS, start=1):
-        ws.column_dimensions[get_column_letter(i)].width = width
-
-    for c, title in enumerate(COLUMNS, start=1):
+    for c, (title, width, _) in enumerate(columns, start=1):
+        ws.column_dimensions[get_column_letter(c)].width = width
         cell = ws.cell(row=1, column=c, value=title)
         cell.font = HEADER_FONT
         cell.fill = HEADER_FILL
         cell.alignment = WRAP
     ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:{get_column_letter(len(columns))}{max(len(records) + 1, 1)}"
 
-    for r, log in enumerate(logs, start=2):
-        values = [log.get("time"), log.get("username"), log.get("role"),
-                  log.get("action"), log.get("details"), log.get("ip_address")]
-        for c, v in enumerate(values, start=1):
-            cell = ws.cell(row=r, column=c, value=v)
+    for r, record in enumerate(records, start=2):
+        for c, (_, _, key) in enumerate(columns, start=1):
+            cell = ws.cell(row=r, column=c, value=record.get(key))
             cell.alignment = WRAP
 
     buf = io.BytesIO()
     wb.save(buf)
     return buf.getvalue()
+
+
+def build_logs_workbook(logs: list[dict]) -> bytes:
+    return _build_workbook("Activity log", LOG_COLUMNS, [{**log, "time": uae_time(log["time"])} for log in logs])
+
+
+def build_users_workbook(users: list[dict]) -> bytes:
+    return _build_workbook("Users", USER_COLUMNS, users)

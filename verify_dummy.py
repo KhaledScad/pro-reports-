@@ -31,7 +31,7 @@ def upload_two_step(kind, path, sheet='__ALL__'):
 
 post_form('/login', {'username': 'admin', 'password': 'Admin@123'})
 print('upload QES dummy ->', upload_two_step('qes', 'sample_data/QES_dummy_20x4Q.xlsx'))
-print('upload FISQ dummy ->', upload_two_step('fisq', 'sample_data/FISQ_dummy_20x4Q.xlsx'))
+print('upload FDI dummy ->', upload_two_step('fdi', 'sample_data/FDI_dummy_20x4Q.xlsx'))
 
 r = opener.open(BASE + '/survey/qes?frame_id=F106', timeout=10)
 html = r.read().decode()
@@ -42,6 +42,6 @@ html = r.read().decode()
 print('F106 compare rows:', html.count('<tr>'), '| trend colors:', html.count('trend-up') + html.count('trend-down'))
 print('inventory mismatch red shown (F106 idx5):', 'Mismatch' in html)
 
-r = opener.open(BASE + '/compare/fisq?frame_id=F104', timeout=10)
+r = opener.open(BASE + '/compare/fdi?frame_id=F104', timeout=10)
 html = r.read().decode()
-print('F104 FISQ needs review shown:', 'Needs review' in html)
+print('F104 FDI needs review shown:', 'Needs review' in html)

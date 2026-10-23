@@ -2,7 +2,7 @@
 {% block title %}{{ t('admin_panel') }} - {{ t('app_title') }}{% endblock %}
 {% block content %}
 <h2>{{ t('admin_panel') }}</h2>
-{% if section != 'users' %}
+{% if section not in ('users', 'database', 'controllers') %}
 {% if message %}<div class="notice ok">{{ message }}</div>{% endif %}
 {% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
 {% endif %}
@@ -17,7 +17,7 @@
     </form>
   </div>
 
-  {% for tp in ["QES", "FISQ"] %}
+  {% for tp in ["QES", "FDI"] %}
   <div class="card upload-card">
     <h3>{{ tp }} <span class="muted small">({{ counts[tp] }} {{ t('records_loaded') }})</span></h3>
     <p class="muted">{{ survey_labels[tp] }}</p>
@@ -46,9 +46,61 @@
 </div>
 <p class="muted small">{{ t('annual_isic_upload_hint') }}</p>
 
+<div class="card" id="database" style="margin-top:20px;">
+  <h3>{{ t('db_title') }}</h3>
+  <p class="muted">{{ t('db_intro') }}</p>
+  {% if section == 'database' %}
+  {% if message %}<div class="notice ok">{{ message }}</div>{% endif %}
+  {% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
+  {% endif %}
+  <form method="post" action="/admin/database" autocomplete="off">
+    <div class="grid grid-2" style="gap:0 16px;">
+      <div><label for="db_url">{{ t('db_url') }}</label>
+        <input type="text" id="db_url" name="db_url" value="{{ database.url }}" spellcheck="false"
+               placeholder="jdbc:oracle:thin:@//host:1521/SERVICE" /></div>
+      <div><label for="refresh_minutes">{{ t('db_refresh') }}</label>
+        <input type="number" id="refresh_minutes" name="refresh_minutes" min="0" step="1" value="{{ database.refresh_minutes }}" /></div>
+      <div><label for="db_user">{{ t('db_username') }}</label>
+        <input type="text" id="db_user" name="db_user" value="{{ database.user }}" autocomplete="off" /></div>
+      <div><label for="db_password">{{ t('db_password') }}</label>
+        <input type="password" id="db_password" name="db_password" autocomplete="new-password"
+               placeholder="{{ t('db_password_saved') if database.has_password else '' }}" /></div>
+    </div>
+    <p class="muted small">{{ t('db_refresh_hint') }}</p>
+    <div class="inline-actions">
+      <button type="submit" class="btn" name="action" value="save">{{ t('db_save') }}</button>
+      <button type="submit" class="btn ghost" name="action" value="test">{{ t('db_test') }}</button>
+    </div>
+  </form>
+
+  <h4 style="margin:22px 0 6px;">{{ t('db_queries_title') }}</h4>
+  <p class="muted small">{{ t('db_query_hint') }}</p>
+  <div class="grid grid-2">
+    {% for d in database.datasets %}
+    <form method="post" action="/admin/database/{{ d.kind|lower }}" class="field" style="padding:12px 14px;">
+      <label for="query_{{ d.kind }}" style="margin-top:0;">{{ d.kind }} &mdash; {{ t('db_query_label') }}</label>
+      <textarea id="query_{{ d.kind }}" name="query" rows="4" spellcheck="false"
+                placeholder="SELECT * FROM {{ d.kind }}_SURVEY_VIEW">{{ d.query }}</textarea>
+      <span class="sub" style="margin-top:6px;">{{ t('db_loaded_now') }}: {{ d.loaded[0] or '-' }}{% if d.loaded[1] %} &middot; {{ d.loaded[1]|uae_time }}{% endif %}</span>
+      {% if d.status %}<span class="sub {{ 'positive' if d.status.ok else 'negative' }}">{{ t('db_last_import') }} {{ d.status.time|uae_time }}: {{ d.status.message }}</span>{% endif %}
+      <div class="inline-actions" style="margin-top:8px;">
+        <button type="submit" class="btn ghost small" name="action" value="save">{{ t('db_save_query') }}</button>
+        <button type="submit" class="btn ghost small" name="action" value="preview">{{ t('db_preview') }}</button>
+        <button type="submit" class="btn small" name="action" value="import"
+                onclick='return confirm({{ t("db_import_confirm").replace("{kind}", d.kind)|tojson }});'>{{ t('db_import') }}</button>
+      </div>
+    </form>
+    {% endfor %}
+  </div>
+</div>
+
 <div class="card" id="users" style="margin-top:20px;">
-  <h3>{{ t('users') }} (<span id="user-visible-count">{{ users|length }}</span> / {{ users|length }} {{ t('shown') }})</h3>
+  <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
+    <h3 style="margin:0;">{{ t('users') }} (<span id="user-visible-count">{{ users|length }}</span> / {{ users|length }} {{ t('shown') }})</h3>
+    <a class="btn ghost small" href="/admin/users/export.xlsx">{{ t('download_users') }}</a>
+  </div>
   <p class="muted">{{ t('user_form_text') }}</p>
+  <p class="muted small">{{ t('user_status_text') }}</p>
   {% if section == 'users' %}
   {% if message %}<div class="notice ok">{{ message }}</div>{% endif %}
   {% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
@@ -69,6 +121,7 @@
           <th>{{ t('job') }}</th>
           <th>{{ t('location') }}</th>
           <th>{{ t('password') }}</th>
+          <th>{{ t('status') }}</th>
           <th></th>
         </tr>
         <tr class="filter-row">
@@ -83,6 +136,13 @@
           <th><input type="search" data-col="job" placeholder="{{ t('filter') }}" aria-label="{{ t('filter') }} {{ t('job') }}" /></th>
           <th><input type="search" data-col="location" placeholder="{{ t('filter') }}" aria-label="{{ t('filter') }} {{ t('location') }}" /></th>
           <th></th>
+          <th>
+            <select data-col="status" aria-label="{{ t('filter') }} {{ t('status') }}">
+              <option value="">{{ t('all') }}</option>
+              <option value="active">{{ t('status_active') }}</option>
+              <option value="suspended">{{ t('status_suspended') }}</option>
+            </select>
+          </th>
           <th></th>
         </tr>
       </thead>
@@ -100,11 +160,12 @@
           <td><input form="user-form-new" name="job" type="text" value="" aria-label="{{ t('add_user') }} {{ t('job') }}" /></td>
           <td><input form="user-form-new" name="location" type="text" value="" aria-label="{{ t('add_user') }} {{ t('location') }}" /></td>
           <td><input form="user-form-new" name="password" type="password" value="" autocomplete="new-password" required placeholder="{{ t('password') }}" aria-label="{{ t('add_user') }} {{ t('password') }}" /></td>
+          <td></td>
           <td><button form="user-form-new" type="submit" class="btn small">{{ t('add_user') }}</button></td>
         </tr>
         {% for u in users %}
         {% set f = 'user-form-' ~ loop.index %}
-        <tr class="user-row">
+        <tr class="user-row{{ ' user-suspended' if u.suspended }}">
           <td><input form="{{ f }}" name="username" type="text" value="{{ u.username }}" autocomplete="off" required data-field="username" aria-label="{{ t('username') }}" /></td>
           <td>
             <select form="{{ f }}" name="authorization" required data-field="authorization" aria-label="{{ t('authorization') }}">
@@ -117,7 +178,23 @@
           <td><input form="{{ f }}" name="job" type="text" value="{{ u.job }}" data-field="job" aria-label="{{ t('job') }}" /></td>
           <td><input form="{{ f }}" name="location" type="text" value="{{ u.location }}" data-field="location" aria-label="{{ t('location') }}" /></td>
           <td><input form="{{ f }}" name="password" type="password" value="" autocomplete="new-password" placeholder="{{ t('password_keep') }}" aria-label="{{ t('password') }}" /></td>
-          <td><button form="{{ f }}" type="submit" class="btn small">{{ t('save_user') }}</button></td>
+          <td>
+            {% if u.suspended %}<span class="pill pill-suspended" data-field="status" data-value="suspended">{{ t('status_suspended') }}</span>
+            {% else %}<span class="pill pill-active" data-field="status" data-value="active">{{ t('status_active') }}</span>{% endif %}
+          </td>
+          <td>
+            <div class="user-actions">
+              <button form="{{ f }}" type="submit" class="btn small">{{ t('save_user') }}</button>
+              {% if u.username|lower != user.username|lower %}
+              <button form="{{ f }}" type="submit" class="btn ghost small" formaction="/admin/users/suspend" formnovalidate
+                      name="suspended" value="{{ '0' if u.suspended else '1' }}">{{ t('reactivate_user') if u.suspended else t('suspend_user') }}</button>
+              <button form="{{ f }}" type="submit" class="btn ghost small danger" formaction="/admin/users/remove" formnovalidate
+                      onclick='return confirm({{ t("user_remove_confirm").replace("{name}", u.username)|tojson }});'>{{ t('remove_user') }}</button>
+              {% else %}
+              <span class="muted small">({{ t('you') }})</span>
+              {% endif %}
+            </div>
+          </td>
         </tr>
         {% endfor %}
       </tbody>
@@ -140,7 +217,8 @@
       var ok = Object.keys(terms).every(function (key) {
         if (!terms[key]) return true;
         var cell = row.querySelector('[data-field="' + key + '"]');
-        return ((cell && cell.value) || "").toLowerCase().indexOf(terms[key]) !== -1;
+        var value = cell ? (cell.getAttribute("data-value") || cell.value || "") : "";  // data-value: the Status pill
+        return value.toLowerCase().indexOf(terms[key]) !== -1;
       });
       row.hidden = !ok;
       if (ok) shown += 1;
@@ -166,6 +244,112 @@
 })();
 </script>
 
+<div class="card" id="controllers" style="margin-top:20px;">
+  <h3>{{ t('controller_teams') }}</h3>
+  <p class="muted">{{ t('controller_teams_text') }}</p>
+  {% if section == 'controllers' %}
+  {% if message %}<div class="notice ok">{{ message }}</div>{% endif %}
+  {% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
+  {% endif %}
+  {% for c in controllers %}
+  <details class="controller-team" style="margin-top:10px; border:1px solid var(--border); border-radius:12px; padding:10px 12px; background:#fafafa;" {{ 'open' if controllers|length == 1 }}>
+    <summary style="cursor:pointer;"><strong>{{ c.name or c.username }}</strong> <span class="muted small">({{ c.username }})</span>
+      &middot; {{ c.team|length }} {{ t('controller_employees') }}{% if c.team_names %}<span class="muted small" style="display:block; margin-top:4px;">{{ c.team_names|join(', ') }}</span>{% endif %}</summary>
+    <form method="post" action="/admin/controllers/{{ c.username|urlencode }}" style="margin-top:10px;">
+      <label for="team-search-{{ loop.index }}" style="margin-top:0;">{{ t('team_search_label') }}</label>
+      <div style="display:flex; gap:8px; max-width:560px;">
+        <input type="search" id="team-search-{{ loop.index }}" class="team-search combo" list="team-users-{{ loop.index }}" autocomplete="off"
+               placeholder="{{ t('team_search_placeholder') }}" onclick="try { this.showPicker(); } catch (e) {}" />
+        <button type="button" class="btn ghost small team-add" style="flex-shrink:0;">{{ t('team_add') }}</button>
+      </div>
+      <datalist id="team-users-{{ loop.index }}">
+        {% for u in c.candidates %}<option value="{{ u.username }}">{{ u.name or u.username }}{% if u.job %} &middot; {{ u.job }}{% endif %}</option>{% endfor %}
+      </datalist>
+      <p class="muted small team-note" style="margin:6px 0 0;" aria-live="polite"></p>
+      <div class="muted small" style="margin-top:10px; font-weight:700;">{{ t('team_selected') }} (<span class="team-count">0</span>)</div>
+      <div class="team-chips chip-list" style="margin-top:6px;"></div>
+      <div class="team-list" style="max-height:280px; overflow:auto; margin-top:10px; display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:2px 16px;">
+        {% for u in c.candidates %}
+        <label class="radio-row" style="margin:0; font-weight:400;" data-name="{{ u.name or u.username }}"><input type="checkbox" name="members" value="{{ u.username }}" {{ 'checked' if u.username|lower in c.team }}>
+          <span style="font-weight:600;">{{ u.username }}</span> <span class="muted small">{{ u.name }}{% if u.job %} &middot; {{ u.job }}{% endif %}</span></label>
+        {% endfor %}
+      </div>
+      <button type="submit" class="btn small" style="margin-top:10px;">{{ t('save_team') }}</button>
+    </form>
+  </details>
+  {% else %}
+  <p class="muted small">{{ t('controller_none') }}</p>
+  {% endfor %}
+</div>
+{% set team_msgs = {"added": t('team_added'), "already": t('team_already'), "removed": t('team_removed'),
+                     "not_found": t('team_not_found'), "many": t('team_many'), "remove": t('team_remove')} %}
+<script>
+(function () {
+  // Controller teams: type a username (or name) to add someone; the ticked
+  // people show as chips above the list, and a chip's x takes them out again.
+  var MSG = {{ team_msgs|tojson }};
+  function fill(text, values) { return text.replace(/\{(\w+)\}/g, function (_, k) { return values[k] || ""; }); }
+  document.querySelectorAll(".controller-team").forEach(function (box) {
+    var search = box.querySelector(".team-search");
+    var list = box.querySelector(".team-list");
+    var labels = Array.prototype.slice.call(list.querySelectorAll("label"));
+    var chips = box.querySelector(".team-chips");
+    var count = box.querySelector(".team-count");
+    var note = box.querySelector(".team-note");
+    function who(label) { return label.getAttribute("data-name") + " (" + label.querySelector("input").value + ")"; }
+    function filter() {
+      var term = search.value.trim().toLowerCase();
+      labels.forEach(function (label) { label.hidden = !!term && label.textContent.toLowerCase().indexOf(term) === -1; });
+    }
+    function drawChips() {
+      chips.innerHTML = "";
+      var ticked = labels.filter(function (label) { return label.querySelector("input").checked; });
+      count.textContent = String(ticked.length);
+      ticked.forEach(function (label) {
+        var chip = document.createElement("button");
+        chip.type = "button";
+        chip.className = "chip";
+        chip.style.cursor = "pointer";
+        chip.title = MSG.remove;
+        chip.textContent = who(label) + " ×";
+        chip.addEventListener("click", function () {
+          label.querySelector("input").checked = false;
+          note.textContent = fill(MSG.removed, { name: who(label) });
+          drawChips();
+        });
+        chips.appendChild(chip);
+      });
+    }
+    function add() {
+      var q = search.value.trim();
+      if (!q) return;
+      var exact = labels.filter(function (label) { return label.querySelector("input").value.toLowerCase() === q.toLowerCase(); });
+      var shown = labels.filter(function (label) { return !label.hidden; });
+      var label = exact[0] || (shown.length === 1 ? shown[0] : null);
+      if (!label) { note.textContent = fill(shown.length ? MSG.many : MSG.not_found, { q: q }); return; }
+      var checkbox = label.querySelector("input");
+      note.textContent = fill(checkbox.checked ? MSG.already : MSG.added, { name: who(label) });
+      checkbox.checked = true;
+      list.insertBefore(label, list.firstChild);
+      search.value = "";
+      filter();
+      drawChips();
+    }
+    search.addEventListener("input", function (e) {
+      filter();
+      // Picking a suggestion from the list adds that person straight away.
+      if (!e.inputType || e.inputType === "insertReplacementText") add();
+    });
+    search.addEventListener("keydown", function (e) {
+      if (e.key === "Enter") { e.preventDefault(); add(); }  // Enter adds; it does not submit the form
+    });
+    box.querySelector(".team-add").addEventListener("click", add);
+    labels.forEach(function (label) { label.querySelector("input").addEventListener("change", drawChips); });
+    drawChips();
+  });
+})();
+</script>
+
 <div class="card" style="margin-top:20px;">
   <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:10px;">
     <h3 style="margin:0;">{{ t('action_logs') }}</h3>
@@ -174,10 +358,10 @@
   <p class="muted small">{{ t('action_logs_hint') }}</p>
   <div class="table-wrap" style="max-height:420px;">
     <table>
-      <thead><tr><th>{{ t('time') }}</th><th>{{ t('username') }}</th><th>{{ t('role') }}</th><th>{{ t('action') }}</th><th>{{ t('details') }}</th><th>{{ t('ip_address') }}</th></tr></thead>
+      <thead><tr><th>{{ t('time_uae') }}</th><th>{{ t('username') }}</th><th>{{ t('name') }}</th><th>{{ t('role') }}</th><th>{{ t('action') }}</th><th>{{ t('details') }}</th><th>{{ t('ip_address') }}</th></tr></thead>
       <tbody>
         {% for l in logs %}
-        <tr><td>{{ l.time }}</td><td>{{ l.username }}</td><td>{{ l.role }}</td><td>{{ l.action }}</td><td>{{ l.details }}</td><td>{{ l.ip_address or '-' }}</td></tr>
+        <tr><td>{{ l.time|uae_time }}</td><td>{{ l.username }}</td><td>{{ l.name or '-' }}</td><td>{{ l.role }}</td><td>{{ l.action }}</td><td>{{ l.details }}</td><td>{{ l.ip_address or '-' }}</td></tr>
         {% endfor %}
       </tbody>
     </table>

@@ -1,16 +1,16 @@
 {% extends "base.html" %}
-{% block title %}FISQ - {{ t('app_title') }}{% endblock %}
+{% block title %}FDI - {{ t('app_title') }}{% endblock %}
 {% block content %}
-<h2>FISQ &mdash; {{ survey_labels.FISQ }}</h2>
+<h2>FDI &mdash; {{ survey_labels.FDI }}</h2>
 <div class="sub-nav">
-  <a class="active" href="/survey/fisq?frame_id={{ frame_id }}">{{ t('calculations') }}</a>
-  <a href="/compare/fisq?frame_id={{ frame_id }}">{{ t('comparison') }}</a>
-  <a href="/guide?tab=fisq">{{ t('nav_guide') }}</a>
+  <a class="active" href="/survey/fdi{% if frame_id %}?frame_id={{ frame_id|urlencode }}{% endif %}">{{ t('calculations') }}</a>
+  <a href="/compare/fdi{% if frame_id %}?frame_id={{ frame_id|urlencode }}{% endif %}">{{ t('comparison') }}</a>
+  <a href="/guide?tab=fdi">{{ t('nav_guide') }}</a>
 </div>
-<p class="muted">{{ t('fisq_calc_hint') }}</p>
+<p class="muted">{{ t('fdi_calc_hint') }}</p>
 
 <div class="card">
-  <form method="get" action="/survey/fisq" class="search-form">
+  <form method="get" action="/survey/fdi" class="search-form">
     {% include "_frame_search.html" %}
 
     <label for="mode">{{ t('calc_mode') }}</label>
@@ -48,17 +48,11 @@
 {% if result %}
 <div class="card">
   <h3>{{ t('results') if result.mode == 'compare' else t('result') }}</h3>
-  {% if result.mode == "compare" %}
-  <div class="notice {{ 'ok' if (result.change|abs) < 0.01 else 'bad' }}">
-    {{ t('calculated_equity') }} {{ result.first.period|period_label(lang) }} &rarr; {{ result.last.period|period_label(lang) }}:
-    <strong>{{ result.change|fmt }}</strong> ({{ result.percent|pct }})
-  </div>
-  {% endif %}
-
   {% for c in result.calcs|reverse %}
-  <div class="formula-box">
-    <strong>{{ c.period|period_label(lang) }} &mdash; asset equation</strong>
+  <details class="formula-box" data-remember="calc-formulas">
+    <summary style="cursor:pointer;"><strong>{{ c.period|period_label(lang) }} &mdash; asset equation</strong>
     {% set src = period_sources.get(c.period) %}{% if src %}<span class="muted small">&middot; {{ t('frame_id') }} {{ src.frame_id }}{% if src.also %} ({{ t('also_reported_under') }} {{ src.also|join(', ') }}){% endif %}</span>{% endif %}
+    <span class="muted small">&middot; {{ t('how_calculated') }}</span></summary>
     <div class="formula-line">{{ t('total_assets') }} = {{ t('current_assets') }} + {{ t('non_current_assets') }}
       = {{ c.current_assets|fmt }} + {{ c.non_current_assets|fmt }} = <strong>{{ c.total_assets|fmt }}</strong></div>
     <div class="formula-line">{{ t('total_liabilities') }} = {{ t('current_liabilities') }} + {{ t('non_current_liabilities') }}
@@ -67,18 +61,23 @@
       = {{ c.total_assets|fmt }} &minus; {{ c.total_liabilities|fmt }} = <strong>{{ c.calculated_equity|fmt }}</strong></div>
     <div class="formula-line">{{ t('difference') }} = {{ t('calculated_equity') }} &minus; {{ t('equity_in_form') }}
       = {{ c.calculated_equity|fmt }} &minus; {{ c.equity_in_form|fmt }} = <strong class="{{ 'positive' if (c.equation_difference|abs) < 0.01 else 'negative' }}">{{ c.equation_difference|fmt }}</strong></div>
-    <div class="formula-line">{{ t('paid_up_capital') }} + {{ t('other_equity') }} &minus; {{ t('equity_in_form') }}
-      = {{ c.equity_7_2|fmt }} + {{ c.equity_7_3|fmt }} &minus; {{ c.equity_in_form|fmt }} = <strong>{{ c.equity_723_difference|fmt }}</strong> ({{ c.equity_723_status }})</div>
-  </div>
+    <div class="formula-line">7.1 + {{ t('paid_up_capital') }} + {{ t('other_equity') }} &minus; {{ t('equity_in_form') }}
+      = {{ c.equity_7_1|fmt }} + {{ c.equity_7_2|fmt }} + {{ c.equity_7_3|fmt }} &minus; {{ c.equity_in_form|fmt }} = <strong class="{{ 'positive' if (c.equity_items_difference|abs) < 0.01 else 'negative' }}">{{ c.equity_items_difference|fmt }}</strong> ({{ c.equity_items_status }})</div>
+  </details>
 
   <div class="fields-grid">
     <div class="field"><span>{{ t('total_assets') }}</span><strong>{{ c.total_assets|fmt }}</strong>{% if c.total_assets_file %}<span class="sub">file: {{ c.total_assets_file|fmt }}</span>{% endif %}</div>
     <div class="field"><span>{{ t('total_liabilities') }}</span><strong>{{ c.total_liabilities|fmt }}</strong>{% if c.total_liabilities_file %}<span class="sub">file: {{ c.total_liabilities_file|fmt }}</span>{% endif %}</div>
     <div class="field"><span>{{ t('calculated_equity') }}</span><strong>{{ c.calculated_equity|fmt }}</strong></div>
     <div class="field"><span>{{ t('equity_in_form') }}</span><strong>{{ c.equity_in_form|fmt }}</strong></div>
-    <div class="field"><span>{{ t('paid_up_capital') }}</span><strong>{{ c.equity_7_2|fmt }}</strong></div>
-    <div class="field"><span>{{ t('other_equity') }}</span><strong>{{ c.equity_7_3|fmt }}</strong></div>
     <div class="field"><span>{{ t('status') }}</span><strong class="{{ 'positive' if c.status == 'Balanced' else 'negative' }}">{{ c.status }}</strong></div>
+  </div>
+
+  <div class="fields-grid" style="margin-top:10px;">
+    <div class="field" style="grid-column:1/-1; background:none; border:none; padding:0;"><strong>{{ t('equity_section_title') }}</strong></div>
+    {% for item in c.equity_section %}
+    <div class="field"{% if item.sub %} style="margin-inline-start:14px;"{% endif %}><span>{{ t(item.label_key) }}</span><strong>{{ item.value|fmt }}</strong>{% if item.prev is not none %}<span class="sub">{{ t('previous_period') }}: {{ item.prev|fmt }}</span>{% endif %}</div>
+    {% endfor %}
   </div>
 
   {% set mv = movement_map.get(c.period) %}

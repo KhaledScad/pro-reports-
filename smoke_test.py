@@ -1,4 +1,4 @@
-"""Stdlib-only smoke test: login, upload Account/QES/FISQ samples, then hit
+"""Stdlib-only smoke test: login, upload Account/QES/FDI samples, then hit
 the calculation and comparison routes to confirm the whole flow works."""
 import http.cookiejar
 import mimetypes
@@ -55,29 +55,29 @@ def upload_two_step(kind, file_path, sheet="__ALL__"):
 print("1) login ->", post_form("/login", {"username": "admin", "password": "Admin@123"}).status)
 print("2) upload accounts ->", upload_two_step("accounts", "sample_data/Account.xlsx"))
 print("3) upload QES ->", upload_two_step("qes", "sample_data/QES_sample.xlsx"))
-print("4) upload FISQ ->", upload_two_step("fisq", "sample_data/FISQ_sample.xlsx"))
+print("4) upload FDI ->", upload_two_step("fdi", "sample_data/FDI_sample.xlsx"))
 
 r = get("/survey/qes?frame_id=F001&mode=single")
 html = r.read().decode()
-print("5) QES single view ->", r.status, "gross_output present:" , "Gross output" in html, "AV field:", "Added value" in html)
+print("5) QES single view ->", r.status, "total production present:" , "Total production" in html, "AV field:", "Added value" in html)
 assert "Frame ID was not found" not in html, "QES record not found / access denied!"
 
 r = get("/survey/qes?frame_id=F001&mode=compare&quarters=Q1_2026&quarters=Q2_2026")
 html = r.read().decode()
-print("6) QES compare view ->", r.status, "compare notice present:", "Added value" in html and "&rarr;" in html)
+print("6) QES compare view ->", r.status, "quarters listed:", html.count("formula-box") >= 2)
 
 r = get("/compare/qes?frame_id=F001&periods=Q1_2026&periods=Q2_2026")
 html = r.read().decode()
-print("7) QES comparison page ->", r.status, "financial table present:", "Financial comparison" in html)
+print("7) QES comparison page ->", r.status, "financial table present:", "Financial comparison" in html, "change notice present:", "&rarr;" in html)
 
-r = get("/survey/fisq?frame_id=F001&mode=single")
+r = get("/survey/fdi?frame_id=F001&mode=single")
 html = r.read().decode()
-print("8) FISQ single view ->", r.status, "equation present:", "Calculated equity" in html)
-assert "Frame ID was not found" not in html, "FISQ record not found / access denied!"
+print("8) FDI single view ->", r.status, "equation present:", "Calculated equity" in html)
+assert "Frame ID was not found" not in html, "FDI record not found / access denied!"
 
-r = get("/compare/fisq?frame_id=F001&periods=Q1_2026&periods=Q2_2026")
+r = get("/compare/fdi?frame_id=F001&periods=Q1_2026&periods=Q2_2026")
 html = r.read().decode()
-print("9) FISQ comparison page ->", r.status, "asset table present:", "Asset equation comparison" in html)
+print("9) FDI comparison page ->", r.status, "asset table present:", "Asset equation comparison" in html, "change notice present:", "&rarr;" in html)
 
 r = get("/admin")
 html = r.read().decode()

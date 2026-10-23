@@ -3,8 +3,8 @@
 {% block content %}
 <h2>QES &mdash; {{ survey_labels.QES }}</h2>
 <div class="sub-nav">
-  <a class="active" href="/survey/qes?frame_id={{ frame_id }}">{{ t('calculations') }}</a>
-  <a href="/compare/qes?frame_id={{ frame_id }}">{{ t('comparison') }}</a>
+  <a class="active" href="/survey/qes{% if frame_id %}?frame_id={{ frame_id|urlencode }}{% endif %}">{{ t('calculations') }}</a>
+  <a href="/compare/qes{% if frame_id %}?frame_id={{ frame_id|urlencode }}{% endif %}">{{ t('comparison') }}</a>
   <a href="/guide?tab=qes">{{ t('nav_guide') }}</a>
 </div>
 <p class="muted">{{ t('calc_hint') }}</p>
@@ -48,17 +48,11 @@
 {% if result %}
 <div class="card">
   <h3>{{ t('results') if result.mode == 'compare' else t('result') }}</h3>
-  {% if result.mode == "compare" %}
-  <div class="notice {{ 'ok' if result.change >= 0 else 'bad' }}">
-    {{ t('added_value') }} {{ result.first.period|period_label(lang) }} &rarr; {{ result.last.period|period_label(lang) }}:
-    <strong>{{ result.change|fmt }}</strong> ({{ result.percent|pct }})
-  </div>
-  {% endif %}
-
   {% for c in result.calcs|reverse %}
-  <div class="formula-box">
-    <strong>{{ c.period|period_label(lang) }} &mdash; {{ c.business_class }}</strong>
+  <details class="formula-box" data-remember="calc-formulas">
+    <summary style="cursor:pointer;"><strong>{{ c.period|period_label(lang) }} &mdash; {{ c.business_class }}</strong>
     {% set src = period_sources.get(c.period) %}{% if src %}<span class="muted small">&middot; {{ t('frame_id') }} {{ src.frame_id }}{% if src.also %} ({{ t('also_reported_under') }} {{ src.also|join(', ') }}){% endif %}</span>{% endif %}
+    <span class="muted small">&middot; {{ t('how_calculated') }}</span></summary>
     {% if c.business_class == "Trade" %}
     <div class="formula-line">{{ t('gross_output') }} = Revenue + Inv.End &minus; Inv.Begin &minus; Raw material
       = {{ c.total_revenue|fmt }} + {{ c.end_inventory|fmt }} &minus; {{ c.begin_inventory|fmt }} &minus; {{ c.raw_material|fmt }} = <strong>{{ c.gross_output|fmt }}</strong></div>
@@ -87,7 +81,13 @@
     {% endif %}
     <div class="formula-line">{{ t('average_salary') }} = {{ t('compensation') }} &divide; Employees &divide; 3
       = {{ c.employee_salary|fmt }} &divide; {{ c.employees|fmt }} &divide; 3 = <strong>{{ c.average_salary|fmt }}</strong></div>
-  </div>
+  </details>
+  {% if c.compensation_exceeds_expenditure %}
+  <div class="notice bad small">{{ t('compensation_flag') }} ({{ t('compensation') }} {{ c.employee_salary|fmt }} &gt; {{ t('expenditure') }} {{ c.total_expenses|fmt }})</div>
+  {% endif %}
+  {% if c.compensation_exceeds_production %}
+  <div class="notice bad small">{{ t('compensation_tp_flag') }} ({{ t('compensation') }} {{ c.employee_salary|fmt }} &gt; {{ t('gross_output') }} {{ c.gross_output|fmt }})</div>
+  {% endif %}
 
   <div class="fields-grid">
     <div class="field"><span>{{ t('business_type') }}</span><strong>{{ c.business_type }}</strong></div>
@@ -98,7 +98,7 @@
     <div class="field"><span>{{ t('added_value') }}</span><strong class="{{ 'positive' if c.added_value > 0 else 'negative' if c.added_value < 0 else '' }}">{{ c.added_value|fmt }}</strong></div>
     <div class="field"><span>{{ t('profit') }}</span><strong class="{{ 'positive' if c.profit > 0 else 'negative' if c.profit < 0 else '' }}">{{ c.profit|fmt }}</strong></div>
     <div class="field"><span>{{ t('employees') }}</span><strong>{{ c.employees|fmt }}</strong></div>
-    <div class="field"><span>{{ t('compensation') }}</span><strong>{{ c.employee_salary|fmt }}</strong></div>
+    <div class="field"><span>{{ t('compensation') }}</span><strong class="{{ 'negative' if c.compensation_exceeds_expenditure or c.compensation_exceeds_production }}">{{ c.employee_salary|fmt }}</strong>{% if c.compensation_exceeds_expenditure %}<span class="sub">{{ t('compensation_exceeds') }}</span>{% endif %}{% if c.compensation_exceeds_production %}<span class="sub">{{ t('compensation_exceeds_tp') }}</span>{% endif %}</div>
     <div class="field"><span>{{ t('average_salary') }}</span><strong>{{ c.average_salary|fmt }}</strong></div>
     <div class="field"><span>{{ t('profit_pct') }}</span><strong>{{ c.profit_pct|pct }}</strong></div>
     <div class="field"><span>{{ t('av_pct') }}</span><strong>{{ c.av_pct|pct }}</strong></div>
@@ -107,7 +107,6 @@
     {% if c.comment_revenue %}<div class="field"><span>Revenue comment</span><strong>{{ c.comment_revenue }}</strong></div>{% endif %}
     {% if c.comment_expense %}<div class="field"><span>Expense comment</span><strong>{{ c.comment_expense }}</strong></div>{% endif %}
     {% if c.comment_inventory %}<div class="field"><span>Inventory comment</span><strong>{{ c.comment_inventory }}</strong></div>{% endif %}
-    {% if c.license_number %}<div class="field"><span>{{ t('license_number') }}</span><strong>{{ c.license_number }}</strong></div>{% endif %}
   </div>
 
   {% set groups = detail_map.get(c.period, []) %}

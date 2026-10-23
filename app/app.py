@@ -16,11 +16,12 @@ from . import excel_utils
 from . import tempstore
 from . import i18n
 from . import variable_reference
-from .logs_export import build_logs_workbook
+from . import db_import
+from .logs_export import build_logs_workbook, build_users_workbook
 from .calc_common import (fmt, pct, period_label, get_periods, key_period, record_meta, text_val, to_num, clean,
                           latest_text, annual_isic_series)
-from .calculations_qes import calc_qes, qes_detail_groups, FIGURES as QES_FIGURES
-from .calculations_fisq import calc_fisq, calc_fisq_period_movement, fisq_component_groups, FIGURES as FISQ_FIGURES
+from .calculations_qes import calc_qes, qes_detail_groups, FIGURES as QES_FIGURES, LICENSE_NUMBER
+from .calculations_fdi import calc_fdi, calc_fdi_period_movement, fdi_component_groups, FIGURES as FDI_FIGURES
 
 BASE_DIR = Path(__file__).resolve().parent
 db.init_db()
@@ -56,6 +57,7 @@ templates.env.auto_reload = False
 templates.env.filters["fmt"] = fmt
 templates.env.filters["pct"] = pct
 templates.env.filters["period_label"] = period_label
+templates.env.filters["uae_time"] = db.uae_time
 # Cache-bust /static assets whenever any of them changes (i.e. every deploy) so
 # browsers can't keep serving a stale style.css/charts.js after an update.
 templates.env.globals["static_version"] = str(int(max(p.stat().st_mtime for p in (BASE_DIR / "static").iterdir() if p.is_file())))
@@ -77,11 +79,13 @@ LAST_N_PERIODS = 4  # current quarter + previous 3
 
 SURVEY_LABELS = {
     "QES": "Quarter Economic Survey",
-    "FISQ": "Foreign Investment Quarter Survey",
+    "FDI": "Foreign Direct Investment Survey",
 }
-CALCULATED_TYPES = {"QES", "FISQ"}
-USER_ROLES = ("ADMIN", "SUPERVISOR", "USER")
-REPORTED_FIGURES = {"QES": QES_FIGURES, "FISQ": FISQ_FIGURES}
+CALCULATED_TYPES = {"QES", "FDI"}
+# Old survey name -> new one (FISQ is now FDI), so old links still work.
+RENAMED_TYPES = {old: new for new, old in db.RENAMED_DBS.items()}
+USER_ROLES = ("ADMIN", "SUPERVISOR", "CONTROLLER", "USER")  # CONTROLLER: sees only their team's Frame IDs
+REPORTED_FIGURES = {"QES": QES_FIGURES, "FDI": FDI_FIGURES}
 
 # Variables selectable in the compare-page trend charts: (data key, i18n label key).
 CHART_VARIABLES = {
@@ -94,7 +98,7 @@ CHART_VARIABLES = {
         ("begin_inventory", "inventory_start"), ("end_inventory", "inventory_end"),
         ("profit_pct", "profit_pct"), ("av_pct", "av_pct"), ("ic_pct", "ic_pct"),
     ],
-    "FISQ": [
+    "FDI": [
         ("current_assets", "current_assets"), ("non_current_assets", "non_current_assets"),
         ("total_assets", "total_assets"), ("current_liabilities", "current_liabilities"),
         ("non_current_liabilities", "non_current_liabilities"), ("total_liabilities", "total_liabilities"),
@@ -104,12 +108,12 @@ CHART_VARIABLES = {
 }
 CHART_DEFAULT_VARIABLES = {
     "QES": ["added_value", "total_revenue"],
-    "FISQ": ["calculated_equity", "total_assets"],
+    "FDI": ["calculated_equity", "total_assets"],
 }
 
-# ±30% quarter-over-quarter movement flag (FISQ only), per the source
+# ±30% quarter-over-quarter movement flag (FDI only), per the source
 # form's own validation rule: (calc dict key, label EN, label AR).
-FISQ_FLAG_METRICS = [
+FDI_FLAG_METRICS = [
     ("current_assets", "Current assets", "الأصول المتداولة"),
     ("non_current_assets", "Non-current assets", "الأصول غير المتداولة"),
     ("current_liabilities", "Current liabilities", "المطلوبات المتداولة"),
@@ -203,6 +207,11 @@ def _warm_up_in_background():
     threading.Thread(target=warm, daemon=True, name="warm-up").start()
 
 
+@app.on_event("startup")
+def _start_database_auto_refresh():
+    db_import.start_auto_refresh()
+
+
 def resolve_frame(choices: list[dict], frame_id: str, license: str) -> str:
     """The Frame ID to open: the Frame ID dropdown wins; otherwise the first
     one with the licence number picked — its page covers every Frame ID that
@@ -212,6 +221,36 @@ def resolve_frame(choices: list[dict], frame_id: str, license: str) -> str:
         return frame_id
     hit = next((c for c in choices if c["license"].strip().lower() == license.lower()), None)
     return hit["frame_id"] if hit else license  # unknown: fall through to the normal not-found / access-denied path
+
+
+def search_frame(request: Request, survey_type: str, frame_options: list[dict], frame_id: str, license: str) -> str:
+    """The Frame ID a survey page opens. A search (the Frame ID / License
+    Number boxes) wins, and a search with both boxes empty forgets the
+    remembered one. Opened without a search — from the menu, Home, or back
+    from another tab — it reopens the last Frame ID the user searched, in
+    this survey or the other one (QES and FDI share Frame IDs), when this
+    survey has it and the user may open it here; else this survey's own
+    last one (see remember_frame)."""
+    if "frame_id" in request.query_params or "license" in request.query_params:
+        if not frame_id.strip() and not license.strip():
+            request.session.pop("last_frame_id", None)
+            request.session["last_frames"] = {k: v for k, v in (request.session.get("last_frames") or {}).items() if k != survey_type}
+        return resolve_frame(frame_options, frame_id, license)
+    openable = {f["frame_id"].strip().lower(): f["frame_id"] for f in frame_options}
+    for remembered in (request.session.get("last_frame_id"), (request.session.get("last_frames") or {}).get(survey_type)):
+        if remembered and remembered.strip().lower() in openable:
+            return openable[remembered.strip().lower()]
+    return ""
+
+
+def remember_frame(request: Request, survey_type: str, frame_id: str) -> None:
+    """Keep the Frame ID just opened for search_frame: as this survey's own
+    last one and — when the user asked for it (a search or a link carrying
+    it), not when it was only reopened from memory — as the last one
+    searched in any survey."""
+    if "frame_id" in request.query_params or "license" in request.query_params:
+        request.session["last_frame_id"] = frame_id
+    request.session["last_frames"] = {**(request.session.get("last_frames") or {}), survey_type: frame_id}
 
 
 def licence_group(frame_options: list[dict], frame_id: str) -> list[str]:
@@ -278,14 +317,6 @@ def chronological(selected: list[str], available: list[str]) -> list[str]:
     return [p for p in available if p in selected]
 
 
-def current_period(survey_type: str) -> str | None:
-    """The newest quarter (Q#_YYYY) in `survey_type`'s data, or None if it
-    has no quarter columns."""
-    columns = dict.fromkeys(k for r in db.all_records(survey_type) for k in r["data"])
-    periods = get_periods(columns)
-    return periods[-1] if periods else None
-
-
 def annual_isic_rows(source: str, frame_ids: list[str]) -> list[dict] | None:
     """Last 3 years of {YYYY}_ISIC4 data for these Frame IDs (one licence's,
     from licence_group) from an annual ISIC source (AES/FIS): each year from
@@ -330,6 +361,9 @@ def login_submit(request: Request, username: str = Form(...), password: str = Fo
     if not user:
         db.add_log(username, "UNKNOWN", "LOGIN_FAILED", "Invalid username or password", client_ip(request))
         return render(request, "login.html", error=i18n.t("invalid_login", get_lang(request)))
+    if user.get("suspended"):
+        db.add_log(user["username"], user["authorization"], "LOGIN_SUSPENDED", "Account is suspended", client_ip(request))
+        return render(request, "login.html", error=i18n.t("account_suspended", get_lang(request)))
     auth.set_session_user(request, user)
     db.add_log(user["username"], user["authorization"], "LOGIN_SUCCESS", "", client_ip(request))
     return RedirectResponse("/dashboard", status_code=303)
@@ -354,16 +388,22 @@ def dashboard(request: Request):
     # Only the current quarter's assignments: a Frame ID someone else has
     # taken over since an earlier quarter is no longer listed as yours.
     access = []
+    team = auth.team_members(user) if auth.is_controller(user) else None
     for t in db.SURVEY_TYPES:
-        period = current_period(t)
+        period = db.current_period(t)
+        records = auth.visible_records(user, t, period)
         access.append({
             "type": t,
             "label": SURVEY_LABELS[t],
             "period": period,
-            "frame_ids": sorted({r["frame_id"] for r in auth.visible_records(user, t, period)}),
+            "frame_ids": sorted({r["frame_id"] for r in records}),
         })
+        if team:  # a CONTROLLER's Home page: each employee's Frame IDs this quarter
+            assigned = [(r["frame_id"], auth.assigned_values(r["data"], period)) for r in records]
+            for member in team:
+                member.setdefault("counts", {})[t] = len({fid for fid, people in assigned if member["tokens"] & people})
     db.add_log(user["username"], user["authorization"], "DASHBOARD_VIEW", "", client_ip(request))
-    return render(request, "dashboard.html", access=access)
+    return render(request, "dashboard.html", access=access, team=team)
 
 
 @app.get("/guide", response_class=HTMLResponse)
@@ -372,7 +412,8 @@ def guide(request: Request, tab: str = "qes"):
     if not user:
         return RedirectResponse("/login")
     db.add_log(user["username"], user["authorization"], "GUIDE_VIEW", tab, client_ip(request))
-    return render(request, "guide.html", guide_tab="fisq" if tab == "fisq" else "qes")
+    tab = RENAMED_TYPES.get(tab.upper(), tab).lower()
+    return render(request, "guide.html", guide_tab="fdi" if tab == "fdi" else "qes")
 
 
 # ----------------------------------------------------------------- admin ---
@@ -391,10 +432,42 @@ def admin_page(request: Request):
         (_public_user(u) for u in db.list_users()),
         key=lambda account: (account["username"] or "").lower(),
     )
-    return render(request, "admin.html", counts=counts, annual_isic_counts=annual_isic_counts,
-                  users=account_users, user_roles=USER_ROLES, logs=db.list_logs(200),
+    settings = db.get_settings()
+    database = {  # the password itself never goes back to the page
+        "url": settings.get("db_url", ""), "user": settings.get("db_user", ""),
+        "has_password": bool(settings.get("db_password")), "refresh_minutes": settings.get("refresh_minutes", "0"),
+        "datasets": [{"kind": k, "query": settings.get(f"query_{k}", ""), "status": db_import.status(k, settings),
+                      "loaded": db.last_load(k)} for k in db_import.DATASETS],
+    }
+    teams = db.all_teams()
+    controllers = []
+    names = {u["username"].lower(): u["name"] or u["username"] for u in account_users}
+    for c in (u for u in account_users if u["authorization"] == "CONTROLLER"):
+        members = teams.get(c["username"].lower(), [])
+        team = {m.lower() for m in members}
+        candidates = [u for u in account_users if u["authorization"] != "ADMIN" and u["username"].lower() != c["username"].lower()]
+        # Members set elsewhere (the Account sheet) that the list would not offer —
+        # an admin, or a username without an account — stay listed, so saving keeps them.
+        listed = {u["username"].lower() for u in candidates}
+        candidates += [{"username": m, "name": names.get(m.lower(), ""), "job": ""} for m in members if m.lower() not in listed]
+        controllers.append({**c, "team": team, "team_names": sorted(names.get(m.lower(), m) for m in members),
+                            "candidates": sorted(candidates, key=lambda u: (u["username"].lower() not in team,
+                                                                          (u["name"] or u["username"]).lower()))})
+    return render(request, "admin.html", counts=counts, annual_isic_counts=annual_isic_counts, database=database,
+                  controllers=controllers,
+                  users=account_users, user_roles=USER_ROLES, logs=with_account_names(db.recent_logs(LOG_DAYS_SHOWN)),
                   message=request.query_params.get("message"), error=request.query_params.get("error"),
                   section=request.query_params.get("section", ""))
+
+
+LOG_DAYS_SHOWN = 7  # the Admin page's Action logs table; the .xlsx download has everything
+
+
+def with_account_names(logs: list[dict]) -> list[dict]:
+    """Each log entry plus its account's display name — empty when the
+    username has no account (e.g. a failed login with an unknown name)."""
+    names = {auth.norm_user(u["username"]): u.get("name") or "" for u in db.list_users()}
+    return [{**entry, "name": names.get(auth.norm_user(entry.get("username")), "")} for entry in logs]
 
 
 def _public_user(user: dict | None) -> dict | None:
@@ -406,6 +479,7 @@ def _public_user(user: dict | None) -> dict | None:
         "name": user.get("name") or "",
         "job": user.get("job") or "",
         "location": user.get("location") or "",
+        "suspended": bool(user.get("suspended")),
     }
 
 
@@ -434,7 +508,7 @@ def admin_save_user(
         return RedirectResponse(f"/admin?section=users&error={quote('Username is required.')}#users", status_code=303)
     if role not in USER_ROLES:
         return RedirectResponse(
-            f"/admin?section=users&error={quote('Authorization must be ADMIN, SUPERVISOR, or USER.')}#users",
+            f"/admin?section=users&error={quote('Authorization must be ' + ', '.join(USER_ROLES[:-1]) + ' or ' + USER_ROLES[-1] + '.')}#users",
             status_code=303,
         )
     try:
@@ -461,6 +535,68 @@ def admin_save_user(
     return RedirectResponse(f"/admin?section=users&message={quote(message)}#users", status_code=303)
 
 
+@app.post("/admin/users/suspend")
+def admin_suspend_user(request: Request, original_username: str = Form(""), suspended: str = Form("1")):
+    """Suspend an account (suspended=1) — it can no longer sign in, and is
+    signed out on its next click — or reactivate it (suspended=0)."""
+    actor = require_login(request)
+    if not actor or not auth.is_admin(actor):
+        if actor:
+            db.add_log(actor["username"], actor["authorization"], "ADMIN_ACCESS_DENIED", "/admin/users/suspend", client_ip(request))
+        return RedirectResponse("/dashboard")
+    username = original_username.strip()
+    suspend = suspended.strip() != "0"
+    if suspend and username.lower() == actor["username"].lower():
+        return RedirectResponse(f"/admin?section=users&error={quote('You cannot suspend your own account.')}#users", status_code=303)
+    try:
+        account = db.set_user_suspended(username, suspend)
+    except ValueError as exc:
+        return RedirectResponse(f"/admin?section=users&error={quote(str(exc))}#users", status_code=303)
+    db.add_log(actor["username"], actor["authorization"], "USER_SUSPENDED" if suspend else "USER_REACTIVATED",
+               account["username"], client_ip(request))
+    message = f"User {account['username']} {'suspended' if suspend else 'reactivated'}."
+    return RedirectResponse(f"/admin?section=users&message={quote(message)}#users", status_code=303)
+
+
+@app.post("/admin/users/remove")
+def admin_remove_user(request: Request, original_username: str = Form("")):
+    """Delete an account for good, and take it out of every controller team."""
+    actor = require_login(request)
+    if not actor or not auth.is_admin(actor):
+        if actor:
+            db.add_log(actor["username"], actor["authorization"], "ADMIN_ACCESS_DENIED", "/admin/users/remove", client_ip(request))
+        return RedirectResponse("/dashboard")
+    username = original_username.strip()
+    if username.lower() == actor["username"].lower():
+        return RedirectResponse(f"/admin?section=users&error={quote('You cannot remove your own account.')}#users", status_code=303)
+    try:
+        account = db.delete_user(username)
+    except ValueError as exc:
+        return RedirectResponse(f"/admin?section=users&error={quote(str(exc))}#users", status_code=303)
+    db.add_log(actor["username"], actor["authorization"], "USER_REMOVED",
+               f"{account['username']} ({account['authorization']}, {account['name'] or '-'})", client_ip(request))
+    return RedirectResponse(f"/admin?section=users&message={quote('User ' + account['username'] + ' removed.')}#users", status_code=303)
+
+
+@app.post("/admin/controllers/{controller}")
+def admin_save_team(request: Request, controller: str, members: list[str] = Form(default=[])):
+    """Set which employees a CONTROLLER oversees — they then see exactly the
+    Frame IDs assigned to those employees (auth.team_tokens)."""
+    actor = require_login(request)
+    if not actor or not auth.is_admin(actor):
+        if actor:
+            db.add_log(actor["username"], actor["authorization"], "ADMIN_ACCESS_DENIED", f"/admin/controllers/{controller}", client_ip(request))
+        return RedirectResponse("/dashboard")
+    account = db.get_user(controller)
+    if not account or str(account["authorization"]).upper() != "CONTROLLER":
+        return RedirectResponse(f"/admin?section=controllers&error={quote(controller + ' is not a CONTROLLER account.')}#controllers", status_code=303)
+    team = db.set_team(account["username"], members)
+    db.add_log(actor["username"], actor["authorization"], "CONTROLLER_TEAM_SAVED",
+               f"{account['username']}: {', '.join(team) or '(none)'}", client_ip(request))
+    message = f"{account['name'] or account['username']}: {len(team)} employee{'s' if len(team) != 1 else ''} saved."
+    return RedirectResponse(f"/admin?section=controllers&message={quote(message)}#controllers", status_code=303)
+
+
 @app.get("/admin/logs/export.xlsx")
 def download_logs_export(request: Request):
     """Admin-only full activity-log export — every entry ever recorded,
@@ -470,12 +606,36 @@ def download_logs_export(request: Request):
         if user:
             db.add_log(user["username"], user["authorization"], "ADMIN_ACCESS_DENIED", "/admin/logs/export.xlsx", client_ip(request))
         return RedirectResponse("/dashboard")
-    content = build_logs_workbook(db.all_logs())
-    db.add_log(user["username"], user["authorization"], "LOGS_EXPORTED", str(len(db.all_logs())), client_ip(request))
+    logs = with_account_names(db.all_logs())
+    content = build_logs_workbook(logs)
+    db.add_log(user["username"], user["authorization"], "LOGS_EXPORTED", str(len(logs)), client_ip(request))
     return StreamingResponse(
         iter([content]),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={"Content-Disposition": 'attachment; filename="activity_logs.xlsx"'},
+    )
+
+
+@app.get("/admin/users/export.xlsx")
+def download_users_export(request: Request):
+    """Admin-only export of every user account, in the Admin page's order
+    and columns (no passwords)."""
+    user = require_login(request)
+    if not user or not auth.is_admin(user):
+        if user:
+            db.add_log(user["username"], user["authorization"], "ADMIN_ACCESS_DENIED", "/admin/users/export.xlsx", client_ip(request))
+        return RedirectResponse("/dashboard")
+    users = sorted((_public_user(u) for u in db.list_users()), key=lambda account: (account["username"] or "").lower())
+    teams = db.all_teams()
+    for u in users:  # a CONTROLLER's employees, in the form the Account sheet's Employees column takes
+        u["employees"] = ", ".join(teams.get(u["username"].lower(), [])) if u["authorization"] == "CONTROLLER" else ""
+        u["status"] = "Suspended" if u["suspended"] else "Active"
+    content = build_users_workbook(users)
+    db.add_log(user["username"], user["authorization"], "USERS_EXPORTED", str(len(users)), client_ip(request))
+    return StreamingResponse(
+        iter([content]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="users.xlsx"'},
     )
 
 
@@ -534,6 +694,8 @@ def upload_confirm(request: Request, kind: str, token: str = Form(...), sheet: s
             db.add_log(user["username"], user["authorization"], "ADMIN_ACCESS_DENIED", f"/admin/upload/{kind}/confirm", client_ip(request))
         return RedirectResponse("/dashboard")
     kind = kind.upper()
+    if kind not in UPLOAD_KINDS:
+        return RedirectResponse("/admin?error=Unknown+upload+type", status_code=303)
     loaded = tempstore.load(token)
     if not loaded:
         return RedirectResponse("/admin?error=Upload+expired,+please+try+again", status_code=303)
@@ -544,6 +706,9 @@ def upload_confirm(request: Request, kind: str, token: str = Form(...), sheet: s
             if not users or not any(u["authorization"] == "ADMIN" for u in users):
                 raise ValueError("Include at least one ADMIN account in the Account sheet.")
             db.replace_users(users)
+            for u in users:  # an Employees column, when the sheet has one, sets each CONTROLLER's team
+                if u["authorization"] == "CONTROLLER" and u.get("employees") is not None:
+                    db.set_team(u["username"], u["employees"])
             db.add_log(user["username"], user["authorization"], "AUTH_FILE_LOADED", f"{filename} / sheet: {sheet}", client_ip(request))
             msg = f"Account+database+loaded+({len(users)}+users)"
         else:
@@ -561,11 +726,95 @@ def upload_confirm(request: Request, kind: str, token: str = Form(...), sheet: s
         tempstore.delete(token)
 
 
+def database_redirect(message: str = "", error: str = "") -> RedirectResponse:
+    text = f"message={quote(message)}" if message else f"error={quote(error)}"
+    return RedirectResponse(f"/admin?section=database&{text}#database", status_code=303)
+
+
+@app.post("/admin/database")
+def admin_database_connection(request: Request, db_url: str = Form(""), db_user: str = Form(""),
+                              db_password: str = Form(""), refresh_minutes: str = Form("0"), action: str = Form("save")):
+    """Save the database connection (JDBC URL, credentials, auto-refresh);
+    with action=test, then try it. A blank password keeps the saved one."""
+    user = require_login(request)
+    if not user or not auth.is_admin(user):
+        if user:
+            db.add_log(user["username"], user["authorization"], "ADMIN_ACCESS_DENIED", "/admin/database", client_ip(request))
+        return RedirectResponse("/dashboard")
+    db_url = db_url.strip()
+    try:
+        if db_url:
+            db_import.parse_jdbc_url(db_url)
+    except ValueError as exc:
+        return database_redirect(error=str(exc))
+    try:
+        minutes = max(0, int(refresh_minutes.strip() or 0))
+    except ValueError:
+        return database_redirect(error="Auto-refresh must be a whole number of minutes (0 = off).")
+    values = {"db_url": db_url, "db_user": db_user.strip(), "refresh_minutes": str(minutes)}
+    if db_password:
+        values["db_password"] = db_password
+    db.save_settings(values)
+    db.add_log(user["username"], user["authorization"], "DB_CONNECTION_SAVED",
+               f"{db_import.describe(db_url)} / auto-refresh: {minutes or 'off'} min", client_ip(request))
+    if action != "test":
+        return database_redirect(message="Database connection saved.")
+    try:
+        message = db_import.test_connection(db.get_settings())
+    except Exception as exc:  # noqa: BLE001
+        db.add_log(user["username"], user["authorization"], "DB_CONNECTION_TEST_FAILED", str(exc), client_ip(request))
+        return database_redirect(error=f"Connection failed: {exc}")
+    db.add_log(user["username"], user["authorization"], "DB_CONNECTION_TESTED", message, client_ip(request))
+    return database_redirect(message=message)
+
+
+@app.post("/admin/database/{kind}")
+def admin_database_query(request: Request, kind: str, query: str = Form(""), action: str = Form("save")):
+    """Save one dataset's SELECT query; with action=preview, run it and say
+    what it would load; with action=import, load it in place of the dataset."""
+    user = require_login(request)
+    if not user or not auth.is_admin(user):
+        if user:
+            db.add_log(user["username"], user["authorization"], "ADMIN_ACCESS_DENIED", f"/admin/database/{kind}", client_ip(request))
+        return RedirectResponse("/dashboard")
+    kind = kind.upper()
+    if kind not in db_import.DATASETS:
+        return database_redirect(error="Unknown dataset.")
+    query = query.strip()
+    try:
+        if query:
+            db_import.clean_query(query)
+    except ValueError as exc:
+        return database_redirect(error=f"{kind}: {exc}")
+    if query != db.get_settings().get(f"query_{kind}", ""):
+        db.save_settings({f"query_{kind}": query})
+        db.add_log(user["username"], user["authorization"], f"{kind}_DB_QUERY_SAVED", query[:500], client_ip(request))
+    if action == "preview":
+        try:
+            return database_redirect(message=f"{kind}: {db_import.preview(kind)}")
+        except Exception as exc:  # noqa: BLE001
+            return database_redirect(error=f"{kind}: {exc}")
+    if action == "import":
+        ok, message = db_import.import_dataset(kind, user["username"], user["authorization"], client_ip(request))
+        return database_redirect(message=message) if ok else database_redirect(error=message)
+    return database_redirect(message=f"{kind}: query saved." if query else f"{kind}: query cleared — this dataset is updated by Excel upload only.")
+
+
 # ---------------------------------------------------------------- survey ---
+
+def renamed_type_redirect(request: Request, survey_type: str) -> RedirectResponse:
+    """The same page under the survey's new name, keeping the query string:
+    /survey/fisq?frame_id=1 -> /survey/fdi?frame_id=1."""
+    path = request.url.path.rsplit("/", 1)[0] + "/" + RENAMED_TYPES[survey_type.upper()].lower()
+    query = request.url.query
+    return RedirectResponse(path + (f"?{query}" if query else ""), status_code=301)
+
 
 @app.get("/survey/{survey_type}", response_class=HTMLResponse)
 def survey_search(request: Request, survey_type: str, frame_id: str = "", license: str = "",
                    mode: str = "compare", quarter: str = "", quarters: list[str] = Query(default=[])):
+    if survey_type.upper() in RENAMED_TYPES:
+        return renamed_type_redirect(request, survey_type)
     user = require_login(request)
     if not user:
         return RedirectResponse("/login")
@@ -576,7 +825,7 @@ def survey_search(request: Request, survey_type: str, frame_id: str = "", licens
 
     visible = auth.visible_records(user, survey_type)
     frame_options = frame_choices(visible)
-    frame_id = resolve_frame(frame_options, frame_id, license)
+    frame_id = search_frame(request, survey_type, frame_options, frame_id, license)
 
     result = None
     error = None
@@ -593,6 +842,7 @@ def survey_search(request: Request, survey_type: str, frame_id: str = "", licens
             error = i18n.t("not_found_or_access", lang)
             db.add_log(user["username"], user["authorization"], "RECORD_ACCESS_DENIED", f"{survey_type} / {frame_id}", client_ip(request))
         else:
+            remember_frame(request, survey_type, frame_ids[0])
             if len(frame_ids) > 1:
                 period_sources = sources
             periods = get_periods(row)
@@ -602,7 +852,7 @@ def survey_search(request: Request, survey_type: str, frame_id: str = "", licens
                     selected = chronological(quarters, periods) or periods[-LAST_N_PERIODS:]
                 else:
                     selected = [quarter] if quarter in periods else (periods[-1:] if periods else [])
-                calc_fn = calc_qes if survey_type == "QES" else calc_fisq
+                calc_fn = calc_qes if survey_type == "QES" else calc_fdi
                 extra = {"lang": lang} if survey_type == "QES" else {}
                 result = calc_fn(row, selected, mode, **extra) if periods else None
                 if not periods:
@@ -615,18 +865,18 @@ def survey_search(request: Request, survey_type: str, frame_id: str = "", licens
             db.add_log(user["username"], user["authorization"], "SURVEY_FRAME_VIEW", f"{survey_type} / {' + '.join(frame_ids)}", client_ip(request))
 
     # Beginning-of-quarter vs end-of-quarter asset equation, per calculated
-    # quarter (FISQ only) — بداية المدة و نهاية المدة.
+    # quarter (FDI only) — بداية المدة و نهاية المدة.
     movement_map = {}
-    if survey_type == "FISQ" and result and result.get("calcs"):
-        movement_map = {c["period"]: calc_fisq_period_movement(row, c["period"]) for c in result["calcs"]}
+    if survey_type == "FDI" and result and result.get("calcs"):
+        movement_map = {c["period"]: calc_fdi_period_movement(row, c["period"]) for c in result["calcs"]}
 
     # Granular survey-form line items, shown alongside the main figures —
     # read-only detail, not part of any calculation above.
     detail_map = {}
     if survey_type == "QES" and result and result.get("calcs"):
         detail_map = {c["period"]: qes_detail_groups(row, c["period"], lang) for c in result["calcs"]}
-    elif survey_type == "FISQ" and result and result.get("calcs"):
-        detail_map = {c["period"]: fisq_component_groups(row, c["period"], lang) for c in result["calcs"]}
+    elif survey_type == "FDI" and result and result.get("calcs"):
+        detail_map = {c["period"]: fdi_component_groups(row, c["period"], lang) for c in result["calcs"]}
 
     template = f"survey_{survey_type.lower()}.html" if survey_type in CALCULATED_TYPES else "survey_generic.html"
     return render(request, template, survey_type=survey_type, frame_id=frame_id, mode=mode,
@@ -641,6 +891,8 @@ def survey_search(request: Request, survey_type: str, frame_id: str = "", licens
 @app.get("/compare/{survey_type}", response_class=HTMLResponse)
 def compare_view(request: Request, survey_type: str, frame_id: str = "", license: str = "",
                  periods: list[str] = Query(default=[])):
+    if survey_type.upper() in RENAMED_TYPES:
+        return renamed_type_redirect(request, survey_type)
     user = require_login(request)
     if not user:
         return RedirectResponse("/login")
@@ -651,7 +903,7 @@ def compare_view(request: Request, survey_type: str, frame_id: str = "", license
 
     visible = auth.visible_records(user, survey_type)
     frame_options = frame_choices(visible)
-    frame_id = resolve_frame(frame_options, frame_id, license)
+    frame_id = search_frame(request, survey_type, frame_options, frame_id, license)
     error = None
     row = None
     all_periods = []
@@ -667,18 +919,29 @@ def compare_view(request: Request, survey_type: str, frame_id: str = "", license
             error = i18n.t("not_found_or_access", lang)
             db.add_log(user["username"], user["authorization"], "RECORD_ACCESS_DENIED", f"{survey_type} / {frame_id}", client_ip(request))
         else:
+            remember_frame(request, survey_type, frame_ids[0])
             if len(frame_ids) > 1:
                 period_sources = sources
             all_periods = get_periods(row)
             # Default: current quarter + previous 3 (last 4 available periods).
             chosen = chronological(periods, all_periods) or all_periods[-LAST_N_PERIODS:]
             calc_period_fn = (lambda p: calc_qes(row, [p], "single", lang)["first"]) if survey_type == "QES" else \
-                              (lambda p: calc_fisq(row, [p], "single")["first"])
+                              (lambda p: calc_fdi(row, [p], "single")["first"])
             calcs = [calc_period_fn(p) for p in chosen]
             if calcs:
                 meta = record_meta(row, lang)
                 add_record_details(meta, frame_options, frame_ids, sources)
             db.add_log(user["username"], user["authorization"], "PROJECT_COMPARISON_VIEW", f"{survey_type} / {' + '.join(frame_ids)}", client_ip(request))
+
+    # First-to-last change across the compared quarters: Added value (QES),
+    # Calculated equity (FDI).
+    headline = None
+    if len(calcs) >= 2:
+        key = "added_value" if survey_type == "QES" else "calculated_equity"
+        first, last = calcs[0], calcs[-1]
+        change = (last[key] or 0) - (first[key] or 0)
+        percent = (change / abs(first[key]) * 100) if first[key] else 0.0
+        headline = {"first": first, "last": last, "change": change, "percent": percent}
 
     # Inventory continuity check (QES only): start should equal previous end.
     inventory_rows = []
@@ -696,32 +959,41 @@ def compare_view(request: Request, survey_type: str, frame_id: str = "", license
             change_pct = (change / abs(prev) * 100) if (i > 0 and prev) else 0
             employee_rows.append({"calc": c, "is_base": i == 0, "change": change, "change_pct": change_pct})
 
-    # ISIC4 classification stability across the compared quarters (QES + FISQ).
+    # ISIC4 classification stability across the compared quarters (QES + FDI),
+    # with the licence number each quarter was reported under. Many quarters'
+    # files carry no licence number (FDI's older quarter blocks have no such
+    # column), so those fall back to the licence of the Frame ID that reported
+    # the quarter — flagged, so the page can tell the two apart.
     isic_rows = []
     if calcs:
+        frame_licence = {f["frame_id"]: f["license"] for f in frame_options}
         prev_isic = None
         for i, c in enumerate(calcs):
             isic = text_val(row, c["period"], ["ISIC4"])
             changed = i > 0 and isic != prev_isic
-            isic_rows.append({"period": c["period"], "isic4": isic, "is_base": i == 0, "changed": changed})
+            own_licence = text_val(row, c["period"], LICENSE_NUMBER)
+            owner = (period_sources.get(c["period"]) or {}).get("frame_id") or frame_ids[0]
+            isic_rows.append({"period": c["period"], "license": own_licence or frame_licence.get(owner, ""),
+                              "license_in_quarter": bool(own_licence),
+                              "isic4": isic, "is_base": i == 0, "changed": changed})
             prev_isic = isic
 
     # Beginning-of-quarter vs end-of-quarter asset equation, within each
-    # quarter (FISQ only) — بداية المدة و نهاية المدة.
+    # quarter (FDI only) — بداية المدة و نهاية المدة.
     movement_rows = []
-    if survey_type == "FISQ" and calcs:
-        movement_rows = [mv for c in calcs if (mv := calc_fisq_period_movement(row, c["period"]))]
+    if survey_type == "FDI" and calcs:
+        movement_rows = [mv for c in calcs if (mv := calc_fdi_period_movement(row, c["period"]))]
 
-    # ±30% quarter-over-quarter movement flag (FISQ only): flags any of the
+    # ±30% quarter-over-quarter movement flag (FDI only): flags any of the
     # 5 tracked totals that moved more than 30% since the previous selected
     # quarter, per the source form's validation rule.
     movement_flags = []
-    if survey_type == "FISQ" and calcs:
+    if survey_type == "FDI" and calcs:
         for i, c in enumerate(calcs):
             if i == 0:
                 continue
             prev = calcs[i - 1]
-            for key, label_en, label_ar in FISQ_FLAG_METRICS:
+            for key, label_en, label_ar in FDI_FLAG_METRICS:
                 prev_val, cur_val = prev.get(key) or 0, c.get(key) or 0
                 if not prev_val:
                     continue
@@ -737,13 +1009,13 @@ def compare_view(request: Request, survey_type: str, frame_id: str = "", license
     detail_rows = []
     if survey_type == "QES" and calcs:
         detail_rows = [{"period": c["period"], "groups": qes_detail_groups(row, c["period"], lang)} for c in calcs]
-    elif survey_type == "FISQ" and calcs:
-        detail_rows = [{"period": c["period"], "groups": fisq_component_groups(row, c["period"], lang)} for c in calcs]
+    elif survey_type == "FDI" and calcs:
+        detail_rows = [{"period": c["period"], "groups": fdi_component_groups(row, c["period"], lang)} for c in calcs]
 
     # Annual ISIC cross-check against the same Frame IDs' annual filing,
-    # last 3 years — QES compares against AES, FISQ compares against FIS.
+    # last 3 years — QES compares against AES, FDI compares against FIS.
     aes_isic_rows = annual_isic_rows("AES", frame_ids) if (survey_type == "QES" and frame_id) else None
-    fis_isic_rows = annual_isic_rows("FIS", frame_ids) if (survey_type == "FISQ" and frame_id) else None
+    fis_isic_rows = annual_isic_rows("FIS", frame_ids) if (survey_type == "FDI" and frame_id) else None
 
     chart = None
     if calcs:
@@ -762,7 +1034,7 @@ def compare_view(request: Request, survey_type: str, frame_id: str = "", license
                   inventory_rows=inventory_rows, employee_rows=employee_rows, isic_rows=isic_rows,
                   movement_rows=movement_rows, movement_flags=movement_flags, detail_rows=detail_rows,
                   aes_isic_rows=aes_isic_rows, fis_isic_rows=fis_isic_rows,
-                  error=error, row=row, meta=meta, chart=chart)
+                  headline=headline, error=error, row=row, meta=meta, chart=chart)
 
 
 # ------------------------------------------------------------------ main ---

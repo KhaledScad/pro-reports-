@@ -1,7 +1,7 @@
-{# Frame ID / License Number search, shared by the QES/FISQ calculation and comparison pages.
+{# Frame ID / License Number search, shared by the QES/FDI calculation and comparison pages.
    Both are searchable dropdowns: click to open the list, or type part of a number or
-   establishment name to filter it. They list every record this user can open (all of them
-   while auth.ALL_USERS_SEE_ALL_RECORDS is on).
+   establishment name to filter it. They list only the Frame IDs this user can open
+   (auth.visible_records: an admin all of them, anyone else those assigned to them).
    Picking one clears the other; the server opens the Frame ID if both are sent. #}
 {% set license_options = license_choices(frame_options) %}
 <div class="frame-search">
@@ -29,3 +29,4 @@
   </div>
 </div>
 <p class="muted small">{{ t('search_by_hint') }} ({{ frame_options|length }} {{ t('frame_ids_available') }})</p>
+{% if not frame_options %}<div class="notice bad small">{{ t('no_frame_ids_to_view') }}</div>{% endif %}

@@ -3,8 +3,8 @@
 {% block content %}
 <h2>QES &mdash; {{ t('comparison') }}</h2>
 <div class="sub-nav">
-  <a href="/survey/qes?frame_id={{ frame_id }}">{{ t('calculations') }}</a>
-  <a class="active" href="/compare/qes?frame_id={{ frame_id }}">{{ t('comparison') }}</a>
+  <a href="/survey/qes{% if frame_id %}?frame_id={{ frame_id|urlencode }}{% endif %}">{{ t('calculations') }}</a>
+  <a class="active" href="/compare/qes{% if frame_id %}?frame_id={{ frame_id|urlencode }}{% endif %}">{{ t('comparison') }}</a>
   <a href="/guide?tab=qes">{{ t('nav_guide') }}</a>
 </div>
 <p class="muted">{{ t('trend_hint') }}</p>
@@ -33,6 +33,22 @@
 {% endif %}
 
 {% if calcs %}
+{% if headline %}
+<div class="notice {{ 'ok' if headline.change >= 0 else 'bad' }}">
+  {{ t('added_value') }} {{ headline.first.period|period_label(lang) }} &rarr; {{ headline.last.period|period_label(lang) }}:
+  <strong>{{ headline.change|fmt }}</strong> ({{ headline.percent|pct }})
+</div>
+{% endif %}
+{% set comp_flags = calcs|selectattr('compensation_exceeds_expenditure')|list %}
+{% if comp_flags %}
+<div class="notice bad">{{ t('compensation_flag') }}:
+  {% for c in comp_flags|reverse %}{{ c.period|period_label(lang) }} ({{ c.employee_salary|fmt }} &gt; {{ c.total_expenses|fmt }}){% if not loop.last %} &middot; {% endif %}{% endfor %}</div>
+{% endif %}
+{% set tp_flags = calcs|selectattr('compensation_exceeds_production')|list %}
+{% if tp_flags %}
+<div class="notice bad">{{ t('compensation_tp_flag') }}:
+  {% for c in tp_flags|reverse %}{{ c.period|period_label(lang) }} ({{ c.employee_salary|fmt }} &gt; {{ c.gross_output|fmt }}){% if not loop.last %} &middot; {% endif %}{% endfor %}</div>
+{% endif %}
 <div class="card">
   <h3>{{ t('financial_comparison') }}</h3>
   <div class="table-wrap">
@@ -62,11 +78,12 @@
   <h3>{{ t('isic_status') }}</h3>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>{{ t('period') }}</th><th>{{ t('isic4') }}</th><th>{{ t('status') }}</th></tr></thead>
+      <thead><tr><th>{{ t('period') }}</th><th>{{ t('license_number') }}</th><th>{{ t('isic4') }}</th><th>{{ t('status') }}</th></tr></thead>
       <tbody>
         {% for ir in isic_rows|reverse %}
         <tr>
           <td>{{ ir.period|period_label(lang) }}</td>
+          <td>{% if ir.license and not ir.license_in_quarter %}<span class="muted">{{ ir.license }}</span>{% else %}{{ ir.license or '-' }}{% endif %}</td>
           <td>{{ ir.isic4 or '-' }}</td>
           <td class="{{ '' if ir.is_base else ('negative' if ir.changed else 'positive') }}">
             {{ t('base_period') if ir.is_base else (t('changed') if ir.changed else t('no_change')) }}
@@ -76,6 +93,7 @@
       </tbody>
     </table>
   </div>
+  {% if isic_rows|rejectattr('license_in_quarter')|selectattr('license')|list %}<p class="muted small">{{ t('license_from_frame_note') }}</p>{% endif %}
 </div>
 
 <div class="card">
@@ -125,14 +143,16 @@
   <h3>{{ t('employee_comparison') }}</h3>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>{{ t('period') }}</th><th>{{ t('employees') }}</th><th>{{ t('compensation') }}</th><th>{{ t('average_salary') }}</th><th>{{ t('expenditure') }}</th><th>{{ t('revenue') }}</th><th>{{ t('employee_change_count') }}</th><th>{{ t('employee_change_pct') }}</th></tr></thead>
+      <thead><tr><th>{{ t('period') }}</th><th>{{ t('employees') }}</th><th>{{ t('compensation') }}</th><th>{{ t('average_salary') }}</th><th>{{ t('expenditure') }}</th><th>{{ t('gross_output') }}</th><th>{{ t('revenue') }}</th><th>{{ t('employee_change_count') }}</th><th>{{ t('employee_change_pct') }}</th><th>{{ t('compensation_check') }}</th></tr></thead>
       <tbody>
         {% for er in employee_rows|reverse %}
+        {% set over_exp, over_tp = er.calc.compensation_exceeds_expenditure, er.calc.compensation_exceeds_production %}
         <tr>
-          <td>{{ er.calc.period|period_label(lang) }}</td><td>{{ er.calc.employees|fmt }}</td><td>{{ er.calc.employee_salary|fmt }}</td>
-          <td>{{ er.calc.average_salary|fmt }}</td><td>{{ er.calc.total_expenses|fmt }}</td><td>{{ er.calc.total_revenue|fmt }}</td>
+          <td>{{ er.calc.period|period_label(lang) }}</td><td>{{ er.calc.employees|fmt }}</td><td class="{{ 'negative' if over_exp or over_tp }}">{{ er.calc.employee_salary|fmt }}</td>
+          <td>{{ er.calc.average_salary|fmt }}</td><td class="{{ 'negative' if over_exp }}">{{ er.calc.total_expenses|fmt }}</td><td class="{{ 'negative' if over_tp }}">{{ er.calc.gross_output|fmt }}</td><td>{{ er.calc.total_revenue|fmt }}</td>
           <td class="{{ '' if er.is_base else ('trend-up' if er.change > 0 else 'trend-down' if er.change < 0 else 'trend-same') }}">{{ 'Base period' if er.is_base else er.change|fmt }}</td>
           <td class="{{ '' if er.is_base else ('trend-up' if er.change > 0 else 'trend-down' if er.change < 0 else 'trend-same') }}">{{ '0%' if er.is_base else er.change_pct|pct }}</td>
+          <td class="{{ 'negative' if over_exp or over_tp else 'positive' }}">{% if over_exp or over_tp %}{{ (([t('compensation_exceeds')] if over_exp else []) + ([t('compensation_exceeds_tp')] if over_tp else []))|join('; ') }}{% else %}{{ t('compensation_ok') }}{% endif %}</td>
         </tr>
         {% endfor %}
       </tbody>

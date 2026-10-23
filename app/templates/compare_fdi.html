@@ -1,16 +1,16 @@
 {% extends "base.html" %}
-{% block title %}FISQ comparison - {{ t('app_title') }}{% endblock %}
+{% block title %}FDI comparison - {{ t('app_title') }}{% endblock %}
 {% block content %}
-<h2>FISQ &mdash; {{ t('comparison') }}</h2>
+<h2>FDI &mdash; {{ t('comparison') }}</h2>
 <div class="sub-nav">
-  <a href="/survey/fisq?frame_id={{ frame_id }}">{{ t('calculations') }}</a>
-  <a class="active" href="/compare/fisq?frame_id={{ frame_id }}">{{ t('comparison') }}</a>
-  <a href="/guide?tab=fisq">{{ t('nav_guide') }}</a>
+  <a href="/survey/fdi{% if frame_id %}?frame_id={{ frame_id|urlencode }}{% endif %}">{{ t('calculations') }}</a>
+  <a class="active" href="/compare/fdi{% if frame_id %}?frame_id={{ frame_id|urlencode }}{% endif %}">{{ t('comparison') }}</a>
+  <a href="/guide?tab=fdi">{{ t('nav_guide') }}</a>
 </div>
 <p class="muted">{{ t('trend_hint') }}</p>
 
 <div class="card">
-  <form method="get" action="/compare/fisq" class="search-form">
+  <form method="get" action="/compare/fdi" class="search-form">
     {% include "_frame_search.html" %}
     {% if all_periods %}
     <div class="period-box">
@@ -33,6 +33,12 @@
 {% endif %}
 
 {% if calcs %}
+{% if headline %}
+<div class="notice {{ 'ok' if (headline.change|abs) < 0.01 else 'bad' }}">
+  {{ t('calculated_equity') }} {{ headline.first.period|period_label(lang) }} &rarr; {{ headline.last.period|period_label(lang) }}:
+  <strong>{{ headline.change|fmt }}</strong> ({{ headline.percent|pct }})
+</div>
+{% endif %}
 <div class="card">
   <h3>{{ t('asset_equation_comparison') }}</h3>
   <div class="table-wrap">
@@ -101,14 +107,15 @@
 {% endif %}
 
 <div class="card">
-  <h3>{{ t('isic_status_fisq') }}</h3>
+  <h3>{{ t('isic_status_fdi') }}</h3>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>{{ t('period') }}</th><th>{{ t('isic4') }}</th><th>{{ t('status') }}</th></tr></thead>
+      <thead><tr><th>{{ t('period') }}</th><th>{{ t('license_number') }}</th><th>{{ t('isic4') }}</th><th>{{ t('status') }}</th></tr></thead>
       <tbody>
         {% for ir in isic_rows|reverse %}
         <tr>
           <td>{{ ir.period|period_label(lang) }}</td>
+          <td>{% if ir.license and not ir.license_in_quarter %}<span class="muted">{{ ir.license }}</span>{% else %}{{ ir.license or '-' }}{% endif %}</td>
           <td>{{ ir.isic4 or '-' }}</td>
           <td class="{{ '' if ir.is_base else ('negative' if ir.changed else 'positive') }}">
             {{ t('base_period') if ir.is_base else (t('changed') if ir.changed else t('no_change')) }}
@@ -118,11 +125,12 @@
       </tbody>
     </table>
   </div>
+  {% if isic_rows|rejectattr('license_in_quarter')|selectattr('license')|list %}<p class="muted small">{{ t('license_from_frame_note') }}</p>{% endif %}
 </div>
 
 <div class="card">
-  <h3>{{ t('annual_isic_title_fisq') }}</h3>
-  <p class="muted">{{ t('annual_isic_desc_fisq') }}</p>
+  <h3>{{ t('annual_isic_title_fdi') }}</h3>
+  <p class="muted">{{ t('annual_isic_desc_fdi') }}</p>
 
   {% if fis_isic_rows %}
   <div class="table-wrap">
@@ -150,14 +158,16 @@
   <h3>{{ t('equity_details') }}</h3>
   <div class="table-wrap">
     <table>
-      <thead><tr><th>{{ t('period') }}</th><th>{{ t('paid_up_capital') }}</th><th>{{ t('other_equity') }}</th><th>7.2 + 7.3</th><th>{{ t('equity_in_form') }}</th><th>{{ t('difference') }}</th><th>{{ t('status') }}</th></tr></thead>
+      <thead><tr><th>{{ t('period') }}</th><th>{{ t('equity_7_1') }}</th><th>{{ t('paid_up_capital') }}</th><th>{{ t('other_equity') }}</th><th>7.1 + 7.2 + 7.3</th><th>{{ t('equity_in_form') }}</th><th>{{ t('difference') }}</th><th>{{ t('status') }}</th></tr></thead>
       <tbody>
         {% for c in calcs|reverse %}
         <tr>
-          <td>{{ c.period|period_label(lang) }}</td><td>{{ c.equity_7_2|fmt }}</td><td>{{ c.equity_7_3|fmt }}</td>
-          <td>{{ c.equity_723_total|fmt }}</td><td>{{ c.equity_in_form|fmt }}</td>
-          <td class="{{ 'positive' if (c.equity_723_difference|abs) < 0.01 else 'negative' }}">{{ c.equity_723_difference|fmt }}</td>
-          <td class="{{ 'positive' if c.equity_723_status == 'Correct' else 'negative' }}">{{ c.equity_723_status }}</td>
+          <td>{{ c.period|period_label(lang) }}</td><td>{{ c.equity_7_1|fmt }}</td><td>{{ c.equity_7_2|fmt }}</td>
+          <td>{{ c.equity_7_3|fmt }}{% if c.equity_7_3_prev is not none %}<div class="muted small">{{ t('previous_period') }}: {{ c.equity_7_3_prev|fmt }}</div>{% endif %}</td>
+          <td>{{ c.equity_items_total|fmt }}</td>
+          <td>{{ c.equity_in_form|fmt }}{% if c.equity_in_form_prev is not none %}<div class="muted small">{{ t('previous_period') }}: {{ c.equity_in_form_prev|fmt }}</div>{% endif %}</td>
+          <td class="{{ 'positive' if (c.equity_items_difference|abs) < 0.01 else 'negative' }}">{{ c.equity_items_difference|fmt }}</td>
+          <td class="{{ 'positive' if c.equity_items_status == 'Correct' else 'negative' }}">{{ c.equity_items_status }}</td>
         </tr>
         {% endfor %}
       </tbody>
@@ -238,7 +248,7 @@
   <h3>{{ t('trend_charts') }}</h3>
   <div class="chart-toolbar">
     <div class="chart-toolbar-label">{{ t('select_variable') }}</div>
-    <div class="var-chip-list" id="fisqVarChecks">
+    <div class="var-chip-list" id="fdiVarChecks">
       {% for v in chart.variables %}
       <label class="var-chip">
         <input type="checkbox" value="{{ v.key }}" {{ "checked" if v.key in chart.default }}>
@@ -250,13 +260,13 @@
     <p class="muted small chart-toolbar-hint">{{ t('chart_multi_hint') }}</p>
   </div>
   <div class="chart-grid">
-    <div class="chart-bar-column" id="fisqBarColumn"></div>
+    <div class="chart-bar-column" id="fdiBarColumn"></div>
     <div class="chart-box">
       <h4>{{ t('pulse_chart') }}</h4>
-      <div class="chart-legend" id="fisqPulseLegend"></div>
+      <div class="chart-legend" id="fdiPulseLegend"></div>
       <div class="chart-canvas-wrap">
-        <svg id="fisqPulseChart" class="chart-svg"></svg>
-        <div class="chart-tooltip" id="fisqPulseTooltip" hidden></div>
+        <svg id="fdiPulseChart" class="chart-svg"></svg>
+        <div class="chart-tooltip" id="fdiPulseTooltip" hidden></div>
       </div>
     </div>
   </div>
@@ -264,15 +274,15 @@
 <script src="/static/charts.js?v={{ static_version }}"></script>
 <script>
   initTrendCharts({
-    checklistId: "fisqVarChecks",
-    barColumnId: "fisqBarColumn",
+    checklistId: "fdiVarChecks",
+    barColumnId: "fdiBarColumn",
     barChartLabel: {{ t('bar_chart')|tojson }},
     groupLargeLabel: {{ t('chart_group_large')|tojson }},
     groupSmallLabel: {{ t('chart_group_small')|tojson }},
     groupPctLabel: {{ t('chart_group_pct')|tojson }},
-    pulseSvgId: "fisqPulseChart",
-    pulseTooltipId: "fisqPulseTooltip",
-    pulseLegendId: "fisqPulseLegend",
+    pulseSvgId: "fdiPulseChart",
+    pulseTooltipId: "fdiPulseTooltip",
+    pulseLegendId: "fdiPulseLegend",
     labels: {{ chart.labels|tojson }},
     variables: {{ chart.variables|tojson }},
     series: {{ chart.series|tojson }}

@@ -1,5 +1,5 @@
 """
-FISQ (Foreign Investment Quarter Survey) calculation engine — asset equation.
+FDI (Foreign Direct Investment Survey) calculation engine — asset equation.
 
 Column names follow the 20-10 variable list (app/survey_layouts.py); the
 older names from the v45 JS port are still accepted after them:
@@ -8,7 +8,7 @@ older names from the v45 JS port are still accepted after them:
   Total Liabilities  = Total_of_Current_Liabilities + Total_of_Long-Term_Liabilities
   Calculated Equity  = Total Assets - Total Liabilities
   Equation Diff      = Calculated Equity - Total_Equity (equity in form)
-  7.2+7.3 check      = (7.2_Paid-up_Capital_Stock + 7.3_Other_Equity) vs Total_Equity
+  Equity items check = (EQ_Q7_7_1 + 7.2_Paid-up_Capital_Stock + 7.3_Other_Equity) vs Total_Equity
 """
 from __future__ import annotations
 
@@ -55,7 +55,24 @@ EQUITY_IN_FORM = ["Total_Equity"] + EQUITY_IN_FORM_END + ["Equity_In_Form", "Equ
 EQUITY_CALCULATED_FILE = ["Equity_Calculated", "Calculated_Equity"]
 DIFFERENCE_FILE = ["Difference_In_Equation"]
 PAID_UP_CAPITAL = ["7.2_Paid-up_Capital_Stock", "Equity_7_2"]
-OTHER_EQUITY = ["7.3_Other_Equity", "Equity_7_3"]
+OTHER_EQUITY = ["7.3_Other_Equity", "Equity_7_3", "EQ_Q7_7_3_VAL"]
+EQUITY_7_1 = ["EQ_Q7_7_1", "Equity_7_1"]
+
+# Survey-form section 7 (Equity) as shown on the calculation page: items 7 to
+# 7.3, each with its previous-period value (the EQ_Q7_*_PREV column).
+# Display-only here; 7.1, 7.2 and 7.3 also feed the equity items check below,
+# the 7.2 D / E items nothing.
+# (i18n label key, current-value columns, previous-period columns, sub-item of the row above)
+EQUITY_SECTION = [
+    ("equity_7_total", EQUITY_IN_FORM, ["EQ_Q7_TOTAL_PREV"], False),
+    ("equity_7_1", EQUITY_7_1, ["EQ_Q7_7_1_PREV"], False),
+    ("paid_up_capital", PAID_UP_CAPITAL, ["EQ_Q7_7_2_PREV"], False),
+    ("equity_7_2d", ["EQ_Q7_7_2D"], ["EQ_Q7_7_2D_PREV"], True),
+    ("equity_7_2e", ["EQ_Q7_7_2E"], ["EQ_Q7_7_2E_PREV"], True),
+    ("other_equity", OTHER_EQUITY, ["EQ_Q7_7_3_VAL_PREV"], False),
+]
+# Always shown, as before; 7.1 and the 7.2 D / E items only when the file has them.
+_EQUITY_ALWAYS_SHOWN = {"equity_7_total", "paid_up_capital", "other_equity"}
 
 # A quarter's reported figures (not its names, codes or statuses) — how the
 # search tells which Frame ID reported a quarter when one licence number has
@@ -64,7 +81,7 @@ FIGURES = [CURRENT_ASSETS, NON_CURRENT_ASSETS, CURRENT_LIAB, NON_CURRENT_LIAB,
            EQUITY_IN_FORM, PAID_UP_CAPITAL, OTHER_EQUITY]
 
 
-def calc_fisq_period(row: dict, period: str) -> dict:
+def calc_fdi_period(row: dict, period: str) -> dict:
     current_assets = num_val(row, period, CURRENT_ASSETS)
     non_current_assets = num_val(row, period, NON_CURRENT_ASSETS)
     total_assets_file = num_val(row, period, TOTAL_ASSETS_FILE)
@@ -80,13 +97,15 @@ def calc_fisq_period(row: dict, period: str) -> dict:
     file_equity = num_val(row, period, EQUITY_CALCULATED_FILE)
     equation_difference = calculated_equity - equity_in_form
 
+    # Form items 7.1 + 7.2 + 7.3 add up to the total equity (item 7).
+    equity_7_1 = num_val(row, period, EQUITY_7_1)
     paid_up_capital = num_val(row, period, PAID_UP_CAPITAL)
     other_equity = num_val(row, period, OTHER_EQUITY)
-    equity_723_total = paid_up_capital + other_equity
-    equity_723_difference = equity_723_total - equity_in_form
+    equity_items_total = equity_7_1 + paid_up_capital + other_equity
+    equity_items_difference = equity_items_total - equity_in_form
 
     eq_ok = abs(equation_difference) < 0.01
-    e723_ok = abs(equity_723_difference) < 0.01
+    items_ok = abs(equity_items_difference) < 0.01
 
     return {
         "period": period,
@@ -102,13 +121,33 @@ def calc_fisq_period(row: dict, period: str) -> dict:
         "file_equity": file_equity,
         "equity_in_form": equity_in_form,
         "equation_difference": equation_difference,
-        "equity_7_2": paid_up_capital, "equity_7_3": other_equity,
-        "equity_723_total": equity_723_total,
-        "equity_723_difference": equity_723_difference,
-        "equity_723_status": "Correct" if e723_ok else "Flag / review",
-        "status": "Balanced" if (eq_ok and e723_ok) else "Needs review",
+        "equity_in_form_prev": _prev_val(row, period, ["EQ_Q7_TOTAL_PREV"]),
+        "equity_7_1": equity_7_1, "equity_7_2": paid_up_capital, "equity_7_3": other_equity,
+        "equity_7_3_prev": _prev_val(row, period, ["EQ_Q7_7_3_VAL_PREV"]),
+        "equity_items_total": equity_items_total,
+        "equity_items_difference": equity_items_difference,
+        "equity_items_status": "Correct" if items_ok else "Flag / review",
+        "status": "Balanced" if (eq_ok and items_ok) else "Needs review",
         "establishment_name": text_val(row, period, ["ESTABLISHMENT_NAME"]),
+        "equity_section": fdi_equity_section(row, period),
     }
+
+
+def _prev_val(row: dict, period: str, prev_codes: list[str]) -> float | None:
+    """A previous-period (*_PREV) value, or None when the file has no such column."""
+    return num_val(row, period, prev_codes) if find_key(row, period, prev_codes) else None
+
+
+def fdi_equity_section(row: dict, period: str) -> list[dict]:
+    """Form items 7 to 7.3 for one quarter, each with `prev` (None when the
+    file has no previous-period column for it)."""
+    items = []
+    for label_key, codes, prev_codes, is_sub in EQUITY_SECTION:
+        if label_key not in _EQUITY_ALWAYS_SHOWN and find_key(row, period, codes) is None:
+            continue
+        items.append({"label_key": label_key, "value": num_val(row, period, codes),
+                      "prev": _prev_val(row, period, prev_codes), "sub": is_sub})
+    return items
 
 
 def _calc_asset_equation(row: dict, period: str, current_assets_keys, non_current_assets_keys,
@@ -143,10 +182,10 @@ def _calc_asset_equation(row: dict, period: str, current_assets_keys, non_curren
     }
 
 
-def calc_fisq_period_movement(row: dict, period: str) -> dict | None:
+def calc_fdi_period_movement(row: dict, period: str) -> dict | None:
     """Beginning-of-quarter vs end-of-quarter asset-equation position for the
     same quarter (بداية المدة / نهاية المدة) — the within-quarter movement,
-    as distinct from the quarter-over-quarter comparison in calc_fisq().
+    as distinct from the quarter-over-quarter comparison in calc_fdi().
     None when the file has no beginning-of-period totals for the quarter (the
     20-10 layout carries only the closing totals)."""
     begin_keys = (CURRENT_ASSETS_BEGIN, NON_CURRENT_ASSETS_BEGIN, CURRENT_LIAB_BEGIN,
@@ -213,7 +252,7 @@ COMPONENT_GROUPS = [
 ]
 
 
-def fisq_component_groups(row: dict, period: str, lang: str = "en") -> list[dict]:
+def fdi_component_groups(row: dict, period: str, lang: str = "en") -> list[dict]:
     """Survey-form item breakdown for display alongside the main
     asset-equation calculation — read-only, not part of any formula above.
     Each item carries its previous-period value as `prev` (None if absent)."""
@@ -236,13 +275,9 @@ def available_periods(row: dict) -> list[str]:
     return get_periods(row)
 
 
-def calc_fisq(row: dict, periods: list[str], mode: str = "single") -> dict:
+def calc_fdi(row: dict, periods: list[str], mode: str = "single") -> dict:
     periods = [p for p in periods if p in get_periods(row)] or get_periods(row)
-    calcs = [calc_fisq_period(row, p) for p in periods]
+    calcs = [calc_fdi_period(row, p) for p in periods]
     if mode == "compare" and len(calcs) >= 2:
-        first, last = calcs[0], calcs[-1]
-        change = last["calculated_equity"] - first["calculated_equity"]
-        percent = (change / abs(first["calculated_equity"]) * 100) if first["calculated_equity"] else 0.0
-        return {"mode": "compare", "periods": periods, "calcs": calcs, "first": first, "last": last,
-                "change": change, "percent": percent}
+        return {"mode": "compare", "periods": periods, "calcs": calcs, "first": calcs[0], "last": calcs[-1]}
     return {"mode": "single", "periods": periods, "calcs": calcs, "first": calcs[0] if calcs else None}

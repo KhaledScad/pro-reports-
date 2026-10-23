@@ -1,13 +1,13 @@
 """
-Exact QES / FISQ upload layouts from "QES and FISQ varibles 20-10.xlsx", column for
+Exact QES / FDI upload layouts from "QES and FDI varibles 20-10.xlsx", column for
 column and in order, including the merged-file quirks: Right_ / Left_Right_ /
-Right_Right_ prefixes, the unprefixed form-item columns inside the first FISQ quarter
+Right_Right_ prefixes, the unprefixed form-item columns inside the first FDI quarter
 block, and odd spellings such as "Total_of _Non-Current_Assets". The upload step
 (excel_utils.normalize_quarter_columns) turns these into plain Q#_YYYY_-prefixed
 columns; this file is what the variable reference and the dummy data are built from.
 """
 
-FISQ_COLUMNS = [
+FDI_COLUMNS = [
     'FRAMEID',
     'ESTABLISHMENT_NAME',
     'Q3_2026_STRATUM',

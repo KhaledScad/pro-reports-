@@ -30,6 +30,10 @@ the 20-10 data it always equals Ops + BankCharges + RawMaterial for Industry).
 
   Added Value      = GO - IC
   Average Salary   = Employee_Salary / Employees / 3   (quarterly salary -> monthly)
+
+GO (key `gross_output`) is shown to users as "Total production". A quarter
+whose compensation (Employee_Salary) is more than its Total Expenses is
+flagged, since compensation is part of expenses.
 """
 from __future__ import annotations
 
@@ -156,12 +160,17 @@ def calc_qes_period(row: dict, period: str, lang: str = "en") -> dict:
         "comment_revenue": text_val(row, period, COMMENT_REV),
         "comment_expense": text_val(row, period, COMMENT_EXP),
         "comment_inventory": text_val(row, period, COMMENT_INV),
-        "license_number": text_val(row, period, LICENSE_NUMBER),
         "validation_status": (
             "Positive added value" if added_value > 0 else
             "Negative added value" if added_value < 0 else
             "Zero added value"
         ),
+        # Compensation is part of total expenses, so it can never be larger.
+        "compensation_exceeds_expenditure": sal > exp,
+        # Paying more than everything the quarter produced is unusual too
+        # (only when there is compensation: a negative total production
+        # alone is not this flag).
+        "compensation_exceeds_production": sal > 0 and sal > gross_output,
     }
 
 
@@ -264,9 +273,5 @@ def calc_qes(row: dict, periods: list[str], mode: str = "single", lang: str = "e
     periods = [p for p in periods if p in get_periods(row)] or get_periods(row)
     calcs = [calc_qes_period(row, p, lang) for p in periods]
     if mode == "compare" and len(calcs) >= 2:
-        first, last = calcs[0], calcs[-1]
-        change = last["added_value"] - first["added_value"]
-        percent = (change / abs(first["added_value"]) * 100) if first["added_value"] else 0.0
-        return {"mode": "compare", "periods": periods, "calcs": calcs, "first": first, "last": last,
-                "change": change, "percent": percent}
+        return {"mode": "compare", "periods": periods, "calcs": calcs, "first": calcs[0], "last": calcs[-1]}
     return {"mode": "single", "periods": periods, "calcs": calcs, "first": calcs[0] if calcs else None}
