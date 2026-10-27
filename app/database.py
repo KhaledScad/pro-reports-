@@ -212,6 +212,17 @@ def init_db() -> None:
             conn.execute("ALTER TABLE users ADD COLUMN suspended INTEGER NOT NULL DEFAULT 0")
         # Admin settings (the database connection and its queries — see db_import.py).
         conn.execute("CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)")
+        # The admin's auditor list per survey (Admin -> Auditor assignments):
+        # while a survey has one, it decides which Frame IDs a USER opens.
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS assignments (
+                survey TEXT NOT NULL,
+                frame_id TEXT NOT NULL,
+                username TEXT NOT NULL,
+                name TEXT
+            )
+        """)
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_assignments_survey ON assignments(survey)")
         # Each CONTROLLER's employees (see auth.team_tokens). Kept apart from
         # users so an Account-sheet upload, which replaces users, keeps them.
         conn.execute("""
@@ -437,6 +448,52 @@ def set_team(controller: str, members: list[str]) -> list[str]:
     return sorted(seen.values(), key=str.lower)
 
 
+# ------------------------------------------------------ auditor assignments ---
+# The admin's list of which auditor has which Frame IDs in the current
+# project, one per survey. While a survey has one, it — not the data's
+# assignment columns — decides which Frame IDs a USER opens (auth.visible_records).
+
+_assignments_cache: dict[str, list[dict]] = {}
+
+
+def assignments(survey_type: str) -> list[dict] | None:
+    """`survey_type`'s auditor list as {frame_id, username, name} rows, or
+    None when it has none. Cached until the next upload or removal."""
+    if survey_type not in _assignments_cache:
+        with get_conn("main") as conn:
+            rows = conn.execute("SELECT frame_id, username, name FROM assignments WHERE survey = ?", (survey_type,)).fetchall()
+        _assignments_cache[survey_type] = [dict(r) for r in rows]
+    rows = _assignments_cache[survey_type]
+    return rows if rows else None
+
+
+def replace_assignments(survey_type: str, entries: list[dict], source: dict) -> int:
+    """Replace `survey_type`'s auditor list with `entries` ({username, name,
+    frame_ids}); `source` (file, sheet, by) is kept for the Admin page.
+    Returns the number of Frame ID assignments saved."""
+    rows = {(fid, e["username"].strip(), (e.get("name") or "").strip())
+            for e in entries for fid in e["frame_ids"] if fid.strip()}
+    with get_conn("main") as conn:
+        conn.execute("DELETE FROM assignments WHERE survey = ?", (survey_type,))
+        conn.executemany("INSERT INTO assignments (survey, frame_id, username, name) VALUES (?, ?, ?, ?)",
+                         [(survey_type, *r) for r in sorted(rows)])
+        conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (
+            f"assignments_{survey_type}",
+            json.dumps({**source, "time": datetime.utcnow().isoformat(timespec="seconds") + "Z"})))
+    _assignments_cache.pop(survey_type, None)
+    sync_now()
+    return len(rows)
+
+
+def clear_assignments(survey_type: str) -> None:
+    """Remove `survey_type`'s auditor list: the data's assignment columns decide again."""
+    with get_conn("main") as conn:
+        conn.execute("DELETE FROM assignments WHERE survey = ?", (survey_type,))
+        conn.execute("DELETE FROM settings WHERE key = ?", (f"assignments_{survey_type}",))
+    _assignments_cache.pop(survey_type, None)
+    sync_now()
+
+
 # ----------------------------------------------------------------- logs ---
 
 # Log times are stored in UTC (the 7-day cutoff below compares them as text)
@@ -496,12 +553,35 @@ def save_settings(values: dict[str, str]) -> None:
 
 # -------------------------------------------------------------- records ---
 
-def replace_records(survey_type: str, rows: list[dict], source_file: str) -> int:
+# A survey's records can come in two parts: an Excel upload's, and those of
+# Admin → Database connection (db_import), whose source_file starts with this.
+DATABASE_SOURCE = "Database: "
+
+
+def _part(database: bool | None) -> tuple[str, tuple]:
+    """A WHERE condition for one part of a survey's records: the database
+    import's (True), the Excel upload's (False) or both (None)."""
+    if database is None:
+        return "1", ()
+    return (f"{'' if database else 'NOT '}substr(COALESCE(source_file, ''), 1, ?) = ?",
+            (len(DATABASE_SOURCE), DATABASE_SOURCE))
+
+
+def _from_database(record: dict) -> bool:
+    return (record.get("source_file") or "").startswith(DATABASE_SOURCE)
+
+
+def replace_records(survey_type: str, rows: list[dict], source_file: str, keep_database: bool = False) -> int:
     """Each upload fully replaces the previous dataset for that survey type,
-    mirroring the original tool's `surveyRecords[type] = rowsOut` behavior."""
+    mirroring the original tool's `surveyRecords[type] = rowsOut` behavior —
+    except that a database import (source_file starting with DATABASE_SOURCE)
+    replaces only the database part, and an Excel upload with `keep_database`
+    only the Excel part, so the two can hold different quarters."""
     uploaded_at = datetime.utcnow().isoformat(timespec="seconds") + "Z"
+    database = source_file.startswith(DATABASE_SOURCE)
+    where, params = _part(database) if database or keep_database else _part(None)
     with get_conn(survey_type) as conn:
-        conn.execute("DELETE FROM records")
+        conn.execute(f"DELETE FROM records WHERE {where}", params)
         conn.executemany(
             "INSERT INTO records (frame_id, source_file, uploaded_at, data) VALUES (?, ?, ?, ?)",
             [(r["frame_id"], source_file, uploaded_at, json.dumps(r["data"], ensure_ascii=False)) for r in rows],
@@ -517,7 +597,12 @@ def all_records(survey_type: str) -> list[dict]:
     """Every record of `survey_type`, parsed and quarter-placed. Kept in
     memory until its database file changes (an upload), so a page load does
     not re-read and re-parse every record. The records are shared between
-    requests: callers must not modify them."""
+    requests: callers must not modify them. The database import's records
+    come after the Excel upload's: where both give a Frame ID the same column
+    (the quarter the database holds), the database's value counts, as pages
+    merge a Frame ID's records in order (app.merged_row). For the quarter(s)
+    the database holds, the Excel upload's figures are dropped altogether
+    (_database_quarters_only)."""
     stamp = _file_stamp(_db_path(survey_type))
     cached = _records_cache.get(survey_type)
     if cached and cached[0] == stamp:
@@ -529,10 +614,63 @@ def all_records(survey_type: str) -> list[dict]:
         d = dict(r)
         d["data"] = json.loads(d["data"])
         out.append(d)
+    out.sort(key=_from_database)
     if survey_type in SURVEY_TYPES:
         _normalize_stored_columns(survey_type, out)
+    _align_database_names(out)
+    if survey_type in SURVEY_TYPES:
+        _database_quarters_only(out)
     _records_cache[survey_type] = (stamp, out)
     return out
+
+
+def _database_quarters_only(records: list[dict]) -> None:
+    """The quarter the database import holds (Q3_2026) comes from the
+    database alone: drop the Excel upload's columns for that quarter, so a
+    Frame ID the database does not return shows no figures for it instead of
+    the Excel file's. Two kinds of the Excel quarter's columns stay, as they
+    are not figures: the assignment columns (auditor / enumerator / supervisor
+    usernames and names) — the database queries do not return usernames, and
+    access to a Frame ID follows them — and the licence number, which groups
+    Frame IDs (app.licence_group): without it a Frame ID falls back to an
+    older quarter's licence and its earlier quarters would come from other
+    establishments. `records` are sorted, Excel part first."""
+    from .auth import GENERIC_ASSIGN_COLS, ROLE_ASSIGN_COLS, _matching_keys  # deferred: auth imports this module
+    from .calc_common import key_period
+    from .calculations_qes import LICENSE_NUMBER
+
+    db_quarters = {key_period(k) for r in records if _from_database(r) for k in r["data"]} - {None}
+    if not db_quarters:
+        return  # no database import: the Excel upload holds every quarter
+    assignment = tuple(ROLE_ASSIGN_COLS + GENERIC_ASSIGN_COLS + LICENSE_NUMBER)
+    for r in records:
+        if _from_database(r):
+            continue
+        keep = set(_matching_keys(tuple(r["data"]), assignment))
+        r["data"] = {k: v for k, v in r["data"].items() if key_period(k) not in db_quarters or k in keep}
+
+
+def _align_database_names(records: list[dict]) -> None:
+    """Give the database part's columns the Excel part's spelling where the
+    two name one column differently (Oracle's COMMENT_REVENUE, the file's
+    Comment_Revenue; "Total_of _Non-Current_Assets"), so the database's value
+    replaces the Excel file's when a Frame ID's records are merged instead of
+    standing beside it. `records` are sorted, Excel part first."""
+    from .calc_common import normalize_header
+
+    spelling: dict[str, str] = {}
+    for keys in {tuple(r["data"]) for r in records if not _from_database(r)}:
+        for k in keys:
+            spelling.setdefault(normalize_header(k), k)
+    renames: dict[tuple, dict[str, str]] = {}
+    for r in records:
+        if not spelling or not _from_database(r):
+            continue
+        keys = tuple(r["data"])
+        if keys not in renames:
+            renames[keys] = {k: s for k in keys if (s := spelling.get(normalize_header(k), k)) != k}
+        if renames[keys]:
+            r["data"] = {renames[keys].get(k, k): v for k, v in r["data"].items()}
 
 
 _quarter_layout_cache: dict[tuple, object] = {}
@@ -596,15 +734,28 @@ def distinct_frame_ids(survey_type: str, limit: int = 200) -> list[str]:
     return [r["frame_id"] for r in rows]
 
 
-def record_count(survey_type: str) -> int:
+def stored_records(survey_type: str, database: bool | None = None) -> list[dict]:
+    """{frame_id, data} of `survey_type`'s rows exactly as stored — before
+    quarter placement — of one part with `database` (see _part)."""
+    where, params = _part(database)
     with get_conn(survey_type) as conn:
-        return conn.execute("SELECT COUNT(*) AS c FROM records").fetchone()["c"]
+        rows = conn.execute(f"SELECT frame_id, data FROM records WHERE {where}", params).fetchall()
+    return [{"frame_id": r["frame_id"], "data": json.loads(r["data"])} for r in rows]
 
 
-def last_load(survey_type: str) -> tuple[str, str]:
-    """(source_file, uploaded_at) of the data now loaded — ("", "") if none."""
+def record_count(survey_type: str, database: bool | None = None) -> int:
+    """Rows of `survey_type`; with `database`, of one part (see _part)."""
+    where, params = _part(database)
     with get_conn(survey_type) as conn:
-        row = conn.execute("SELECT source_file, uploaded_at FROM records LIMIT 1").fetchone()
+        return conn.execute(f"SELECT COUNT(*) AS c FROM records WHERE {where}", params).fetchone()["c"]
+
+
+def last_load(survey_type: str, database: bool | None = None) -> tuple[str, str]:
+    """(source_file, uploaded_at) of the data now loaded — of one part with
+    `database` (see _part) — or ("", "") if none."""
+    where, params = _part(database)
+    with get_conn(survey_type) as conn:
+        row = conn.execute(f"SELECT source_file, uploaded_at FROM records WHERE {where} LIMIT 1", params).fetchone()
     return (row["source_file"] or "", row["uploaded_at"] or "") if row else ("", "")
 
 

@@ -43,18 +43,19 @@ EQUITY_IN_FORM_END = ["Equity_In_Form_End_of_period", "Equity_Form_End_of_period
 
 # Primary per-quarter lookups (used by the main "Asset equation comparison"
 # and "Equity details" tables): the 20-10 variable names first, then the
-# End-of-period column, then the old plain column name.
-CURRENT_ASSETS = ["Total_of_Current_Assets"] + CURRENT_ASSETS_END + ["Current_Assets"]
-NON_CURRENT_ASSETS = ["Total_of_Non_Current_Assets"] + NON_CURRENT_ASSETS_END + ["Non_Current_Assets"]
+# End-of-period column, then the old plain column name, then the database
+# view's form codes (CURR_AS_Q3_TOTAL = form section Q3's total, …).
+CURRENT_ASSETS = ["Total_of_Current_Assets"] + CURRENT_ASSETS_END + ["Current_Assets", "CURR_AS_Q3_TOTAL"]
+NON_CURRENT_ASSETS = ["Total_of_Non_Current_Assets"] + NON_CURRENT_ASSETS_END + ["Non_Current_Assets", "NCURR_AS_Q4_TOTAL"]
 TOTAL_ASSETS_FILE = TOTAL_ASSETS_FILE_END + ["Total_Assets"]
-CURRENT_LIAB = ["Total_of_Current_Liabilities"] + CURRENT_LIAB_END + ["Current_Liabilities"]
+CURRENT_LIAB = ["Total_of_Current_Liabilities"] + CURRENT_LIAB_END + ["Current_Liabilities", "CURR_LIAB_Q5_TOTAL"]
 NON_CURRENT_LIAB = ["Total_of_Long_Term_Liabilities"] + NON_CURRENT_LIAB_END + [
-    "Non_Current_Liabilities", "Long_Term_Liabilities", "NonCurrent_Liabilities"]
+    "Non_Current_Liabilities", "Long_Term_Liabilities", "NonCurrent_Liabilities", "LNG_LIAB_Q6_TOTAL"]
 TOTAL_LIAB_FILE = TOTAL_LIAB_FILE_END + ["Total_Liabilities"]
-EQUITY_IN_FORM = ["Total_Equity"] + EQUITY_IN_FORM_END + ["Equity_In_Form", "Equity_Form", "Form_Equity"]
+EQUITY_IN_FORM = ["Total_Equity"] + EQUITY_IN_FORM_END + ["Equity_In_Form", "Equity_Form", "Form_Equity", "EQ_Q7_TOTAL"]
 EQUITY_CALCULATED_FILE = ["Equity_Calculated", "Calculated_Equity"]
 DIFFERENCE_FILE = ["Difference_In_Equation"]
-PAID_UP_CAPITAL = ["7.2_Paid-up_Capital_Stock", "Equity_7_2"]
+PAID_UP_CAPITAL = ["7.2_Paid-up_Capital_Stock", "Equity_7_2", "EQ_Q7_7_2"]
 OTHER_EQUITY = ["7.3_Other_Equity", "Equity_7_3", "EQ_Q7_7_3_VAL"]
 EQUITY_7_1 = ["EQ_Q7_7_1", "Equity_7_1"]
 
@@ -215,39 +216,37 @@ def calc_fdi_period_movement(row: dict, period: str) -> dict | None:
 # from their own columns — these items are only part of each total, so
 # they are never summed into it. The 20-10 layout carries them for the two
 # latest quarters only; the upload step gives them their quarter prefix.
+# The database view carries items A-C (Q3, Q4) and A-B (Q5, Q6) instead;
+# an item shows only when the record has its column.
 # ---------------------------------------------------------------------
+def _items(*codes: tuple[str, str]) -> list[tuple[str, str, list[str]]]:
+    return [(f"Item {letter}", f"البند {letter}", [code]) for letter, code in codes]
+
+
 COMPONENT_GROUPS = [
     {
         "title_en": "Current assets — form items (Q3)",
         "title_ar": "الأصول المتداولة — بنود الاستمارة (Q3)",
-        "components": [
-            ("Item D", "البند D", ["CURR_AS_Q3_D"]),
-            ("Item E", "البند E", ["CURR_AS_Q3_E"]),
-        ],
+        "components": _items(("A", "CURR_AS_Q3_A"), ("B", "CURR_AS_Q3_B"), ("C", "CURR_AS_Q3_C"),
+                             ("D", "CURR_AS_Q3_D"), ("E", "CURR_AS_Q3_E")),
     },
     {
         "title_en": "Non-current assets — form items (Q4)",
         "title_ar": "الأصول غير المتداولة — بنود الاستمارة (Q4)",
-        "components": [
-            ("Item D", "البند D", ["NCURR_AS_Q4_D"]),
-            ("Item E", "البند E", ["NCURR_AS_Q4_E"]),
-        ],
+        "components": _items(("A", "NCURR_AS_Q4_A"), ("B", "NCURR_AS_Q4_B"), ("C", "NCURR_AS_Q4_C"),
+                             ("D", "NCURR_AS_Q4_D"), ("E", "NCURR_AS_Q4_E")),
     },
     {
         "title_en": "Current liabilities — form items (Q5)",
         "title_ar": "المطلوبات المتداولة — بنود الاستمارة (Q5)",
-        "components": [
-            ("Item C", "البند C", ["CURR_LIAB_Q5C"]),
-            ("Item D", "البند D", ["CURR_LIAB_Q5D"]),
-        ],
+        "components": _items(("A", "CURR_LIAB_Q5A"), ("B", "CURR_LIAB_Q5B"), ("C", "CURR_LIAB_Q5C"),
+                             ("D", "CURR_LIAB_Q5D")),
     },
     {
         "title_en": "Long-term liabilities — form items (Q6)",
         "title_ar": "المطلوبات طويلة الأجل — بنود الاستمارة (Q6)",
-        "components": [
-            ("Item C", "البند C", ["LNG_LIAB_Q6C"]),
-            ("Item D", "البند D", ["LNG_LIAB_Q6D"]),
-        ],
+        "components": _items(("A", "LNG_LIAB_Q6A"), ("B", "LNG_LIAB_Q6B"), ("C", "LNG_LIAB_Q6C"),
+                             ("D", "LNG_LIAB_Q6D")),
     },
 ]
 

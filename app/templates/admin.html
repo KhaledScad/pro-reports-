@@ -2,7 +2,7 @@
 {% block title %}{{ t('admin_panel') }} - {{ t('app_title') }}{% endblock %}
 {% block content %}
 <h2>{{ t('admin_panel') }}</h2>
-{% if section not in ('users', 'database', 'controllers') %}
+{% if section not in ('users', 'database', 'controllers', 'assignments') %}
 {% if message %}<div class="notice ok">{{ message }}</div>{% endif %}
 {% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
 {% endif %}
@@ -19,7 +19,7 @@
 
   {% for tp in ["QES", "FDI"] %}
   <div class="card upload-card">
-    <h3>{{ tp }} <span class="muted small">({{ counts[tp] }} {{ t('records_loaded') }})</span></h3>
+    <h3>{{ tp }} <span class="muted small">({{ counts[tp] }} {{ t('records_loaded') }}{% if database_counts[tp] %} &middot; {{ database_counts[tp] }} {{ t('records_from_database') }}{% endif %})</span></h3>
     <p class="muted">{{ survey_labels[tp] }}</p>
     <form method="post" action="/admin/upload/{{ tp|lower }}/preview" enctype="multipart/form-data">
       <input type="file" name="file" accept=".xlsx,.xls" required />
@@ -35,7 +35,7 @@
 <div class="grid grid-2" style="margin-top:12px;">
   {% for tp in ["AES", "FIS"] %}
   <div class="card upload-card">
-    <h3>{{ tp }} <span class="muted small">({{ annual_isic_counts[tp] }} {{ t('records_loaded') }})</span></h3>
+    <h3>{{ tp }} <span class="muted small">({{ annual_isic_counts[tp] }} {{ t('records_loaded') }}{% if database_counts[tp] %} &middot; {{ database_counts[tp] }} {{ t('records_from_database') }}{% endif %})</span></h3>
     <p class="muted">{{ t('annual_isic_' + tp|lower + '_upload_text') }}</p>
     <form method="post" action="/admin/upload/{{ tp|lower }}/preview" enctype="multipart/form-data">
       <input type="file" name="file" accept=".xlsx,.xls" required />
@@ -45,6 +45,54 @@
   {% endfor %}
 </div>
 <p class="muted small">{{ t('annual_isic_upload_hint') }}</p>
+
+<div class="card" id="assignments" style="margin-top:20px;">
+  <h3>{{ t('assign_title') }}</h3>
+  <p class="muted">{{ t('assign_intro') }}</p>
+  {% if section == 'assignments' %}
+  {% if message %}<div class="notice ok">{{ message }}</div>{% endif %}
+  {% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
+  {% endif %}
+  <div class="grid grid-2">
+    {% for tp in ["QES", "FDI"] %}
+    {% set s = assignment_lists[tp] %}
+    <div style="border:1px solid var(--border); border-radius:12px; padding:12px 14px; background:#fafafa;">
+      <h4 style="margin:0 0 6px;">{{ tp }}</h4>
+      {% if s %}
+      <p class="small" style="margin:0;"><strong class="positive">{{ t('assign_active') }}</strong>:
+        {{ s.auditors|length }} {{ t('assign_auditors') }} &middot; {{ s.frames }} {{ t('frame_ids') }}</p>
+      <p class="muted small" style="margin:2px 0 0;">{{ s.meta.file }}{% if s.meta.time %} &middot; {{ s.meta.time|uae_time }}{% endif %}{% if s.meta.by %} &middot; {{ s.meta.by }}{% endif %}</p>
+      {% if s.not_in_data %}<p class="small negative" style="margin:6px 0 0;">{{ t('assign_not_in_data') }} ({{ s.not_in_data|length }}): {{ s.not_in_data[:10]|join(', ') }}{% if s.not_in_data|length > 10 %} &hellip;{% endif %}</p>{% endif %}
+      {% if s.unassigned %}<p class="small negative" style="margin:6px 0 0;">{{ t('assign_unassigned') }}: {{ s.unassigned }}</p>{% endif %}
+      {% if s.no_account %}<p class="small negative" style="margin:6px 0 0;">{{ t('assign_no_account') }}: {{ s.no_account|map(attribute='username')|join(', ') }}</p>{% endif %}
+      {% if s.shared %}<p class="muted small" style="margin:6px 0 0;">{{ t('assign_shared') }} ({{ s.shared|length }}): {{ s.shared[:10]|join(', ') }}{% if s.shared|length > 10 %} &hellip;{% endif %}</p>{% endif %}
+      <details style="margin-top:8px;">
+        <summary style="cursor:pointer;" class="small">{{ t('assign_show_list') }}</summary>
+        <div class="table-wrap" style="max-height:260px; margin-top:6px;">
+          <table>
+            <thead><tr><th>{{ t('name') }}</th><th>{{ t('username') }}</th><th>{{ t('frame_ids') }}</th></tr></thead>
+            <tbody>{% for a in s.auditors %}<tr><td>{{ a.name or '-' }}</td><td>{{ a.username }}</td><td>{{ a.frames|length }}</td></tr>{% endfor %}</tbody>
+          </table>
+        </div>
+      </details>
+      <div class="inline-actions" style="margin-top:8px;">
+        <a class="btn ghost small" href="/admin/assignments/{{ tp|lower }}.xlsx">{{ t('assign_download') }}</a>
+        <form method="post" action="/admin/assignments/{{ tp|lower }}/clear" style="margin:0;"
+              onsubmit='return confirm({{ t("assign_remove_confirm").replace("{kind}", tp)|tojson }});'>
+          <button type="submit" class="btn ghost small">{{ t('assign_remove') }}</button>
+        </form>
+      </div>
+      {% else %}
+      <p class="muted small" style="margin:0;">{{ t('assign_none') }}</p>
+      {% endif %}
+      <form method="post" action="/admin/upload/assign_{{ tp|lower }}/preview" enctype="multipart/form-data" style="margin-top:10px;">
+        <input type="file" name="file" accept=".xlsx,.xls" required />
+        <button type="submit" class="btn small" style="margin-top:8px;">{{ t('assign_upload') }}</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+</div>
 
 <div class="card" id="database" style="margin-top:20px;">
   <h3>{{ t('db_title') }}</h3>
@@ -65,7 +113,13 @@
       <div><label for="db_password">{{ t('db_password') }}</label>
         <input type="password" id="db_password" name="db_password" autocomplete="new-password"
                placeholder="{{ t('db_password_saved') if database.has_password else '' }}" /></div>
+      <div><label for="db_quarter">{{ t('db_quarter') }}</label>
+        <select id="db_quarter" name="db_quarter">
+          {% for q in database.quarters %}<option value="{{ q }}" {% if q == database.quarter %}selected{% endif %}>{{ q }}_</option>{% endfor %}
+          <option value="{{ database.row_quarters }}" {% if database.quarter == database.row_quarters %}selected{% endif %}>{{ t('db_quarter_rows') }}</option>
+        </select></div>
     </div>
+    <p class="muted small">{{ t('db_quarter_hint') }}</p>
     <p class="muted small">{{ t('db_refresh_hint') }}</p>
     <div class="inline-actions">
       <button type="submit" class="btn" name="action" value="save">{{ t('db_save') }}</button>
@@ -81,7 +135,7 @@
       <label for="query_{{ d.kind }}" style="margin-top:0;">{{ d.kind }} &mdash; {{ t('db_query_label') }}</label>
       <textarea id="query_{{ d.kind }}" name="query" rows="4" spellcheck="false"
                 placeholder="SELECT * FROM {{ d.kind }}_SURVEY_VIEW">{{ d.query }}</textarea>
-      <span class="sub" style="margin-top:6px;">{{ t('db_loaded_now') }}: {{ d.loaded[0] or '-' }}{% if d.loaded[1] %} &middot; {{ d.loaded[1]|uae_time }}{% endif %}</span>
+      <span class="sub" style="margin-top:6px;">{{ t('db_loaded_now') }}: {% for source, at in d.loaded %}{% if not loop.first %} + {% endif %}{{ source or '-' }}{% if at %} &middot; {{ at|uae_time }}{% endif %}{% else %}-{% endfor %}</span>
       {% if d.status %}<span class="sub {{ 'positive' if d.status.ok else 'negative' }}">{{ t('db_last_import') }} {{ d.status.time|uae_time }}: {{ d.status.message }}</span>{% endif %}
       <div class="inline-actions" style="margin-top:8px;">
         <button type="submit" class="btn ghost small" name="action" value="save">{{ t('db_save_query') }}</button>

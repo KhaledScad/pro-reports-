@@ -1,9 +1,11 @@
 {# Frame ID / License Number search, shared by the QES/FDI calculation and comparison pages.
    Both are searchable dropdowns: click to open the list, or type part of a number or
    establishment name to filter it. They list only the Frame IDs this user can open
-   (auth.visible_records: an admin all of them, anyone else those assigned to them).
+   (auth.visible_records: an admin all of them, anyone else those assigned to them),
+   and of those only the current distribution (search_options, app.search_choices).
    Picking one clears the other; the server opens the Frame ID if both are sent. #}
-{% set license_options = license_choices(frame_options) %}
+{% set options = search_options if search_options is defined else frame_options %}
+{% set license_options = license_choices(options) %}
 <div class="frame-search">
   <div>
     <label for="frame_id">{{ t('frame_id') }}</label>
@@ -12,7 +14,7 @@
            onclick="try { this.showPicker(); } catch (e) {}"
            oninput="if (this.value) document.getElementById('license').value = '';">
     <datalist id="frame_id_options">
-      {% for f in frame_options %}<option value="{{ f.frame_id }}">{{ f.name }}{% if f.license %} &middot; {{ f.license }}{% endif %}</option>{% endfor %}
+      {% for f in options %}<option value="{{ f.frame_id }}">{{ f.name }}{% if f.license %} &middot; {{ f.license }}{% endif %}</option>{% endfor %}
     </datalist>
   </div>
   <div class="frame-search-or">{{ t('or') }}</div>
@@ -28,5 +30,5 @@
     </datalist>
   </div>
 </div>
-<p class="muted small">{{ t('search_by_hint') }} ({{ frame_options|length }} {{ t('frame_ids_available') }})</p>
-{% if not frame_options %}<div class="notice bad small">{{ t('no_frame_ids_to_view') }}</div>{% endif %}
+<p class="muted small">{{ t('search_by_hint') }} ({{ options|length }} {{ t('frame_ids_available') }})</p>
+{% if not options %}<div class="notice bad small">{{ t('no_frame_ids_to_view') }}</div>{% endif %}

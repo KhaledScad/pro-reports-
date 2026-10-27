@@ -195,29 +195,56 @@ def latest_text(row: dict, suffixes) -> str:
     return ""
 
 
+def newest_texts(row: dict, *fields) -> list[str]:
+    """The value of each of `fields`, all from one quarter: the newest that
+    fills any of them, then the plain (no quarter prefix) columns. A field is
+    a (columns, fallback columns) pair; the fallback counts only within the
+    same quarter, never in place of a newer quarter's value."""
+    for p in [*reversed(get_periods(row)), None]:
+        values = [text_val(row, p, first) or (text_val(row, p, second) if second else "") for first, second in fields]
+        if any(values):
+            return values
+    return [""] * len(fields)
+
+
+def assignment_meta(row: dict, lang: str = "en") -> dict:
+    """Who the record is assigned to, for the Record card. Each role's name
+    and username come from one quarter — the newest that names anyone in
+    that role, i.e. the current quarter's assignment whenever it has one —
+    so an earlier quarter's auditor or enumerator never shows instead of, or
+    beside, the current one."""
+    def name(role: str) -> tuple[list[str], list[str]]:
+        # FDI carries plain AUDITOR_NAME / ENUMERATOR_NAME (no _EN/_AR pair), tried last.
+        own, other = (f"{role}_NAME_AR", f"{role}_NAME_EN") if lang == "ar" else (f"{role}_NAME_EN", f"{role}_NAME_AR")
+        return [own], [other, f"{role}_NAME"]
+
+    auditor_name, auditor_username = newest_texts(row, name("AUDITOR"), (["Auditor_User_Name", "Auditor_Username"], ()))
+    enumerator_name, enumerator_username = newest_texts(
+        row, name("ENUMERATOR"), (["_ENUMERATOR_User_name", "ENUMERATOR_User_name", "Enumerator_User_Name"], ()))
+    supervisor_username, = newest_texts(row, (["AUD_Supervisor_USER_Name", "Supervisor_USER_Name",
+                                                "Supervisor_Username", "ENU_Supervisor_User_Name"], ()))
+    return {
+        "auditor_name": auditor_name, "auditor_username": auditor_username,
+        "enumerator_name": enumerator_name, "enumerator_username": enumerator_username,
+        "supervisor_username": supervisor_username,
+    }
+
+
 def record_meta(row: dict, lang: str = "en") -> dict:
     """Common identifying fields shown above any QES/FDI calculation, each
     from the newest quarter that has it — older quarters' blocks in a merged
     file often leave names and assignments empty."""
     def pick(first: list[str], second: list[str] = ()) -> str:
-        return latest_text(row, first) or (latest_text(row, second) if second else "")
+        return newest_texts(row, (first, second))[0]
 
     ar = lang == "ar"
-    # FDI carries plain AUDITOR_NAME / ENUMERATOR_NAME (no _EN/_AR pair), tried last.
     return {
         "frame_id": frame_id_of(row),
         "establishment_name": pick(["ESTABLISHMENT_NAME"]),
         "isic4": pick(["ISIC4"]),
         "isic4_desc": pick(["ISIC4_DESC_AR"], ["ISIC4_DESC_EN"]) if ar else pick(["ISIC4_DESC_EN"], ["ISIC4_DESC_AR"]),
         "activity_type": pick(["ACTIVITY_TYPE_AR"], ["ACTIVITY_TYPE_EN"]) if ar else pick(["ACTIVITY_TYPE_EN"], ["ACTIVITY_TYPE_AR"]),
-        "auditor_name": pick(["AUDITOR_NAME_AR"], ["AUDITOR_NAME_EN", "AUDITOR_NAME"]) if ar
-                        else pick(["AUDITOR_NAME_EN"], ["AUDITOR_NAME_AR", "AUDITOR_NAME"]),
-        "enumerator_name": pick(["ENUMERATOR_NAME_AR"], ["ENUMERATOR_NAME_EN", "ENUMERATOR_NAME"]) if ar
-                           else pick(["ENUMERATOR_NAME_EN"], ["ENUMERATOR_NAME_AR", "ENUMERATOR_NAME"]),
-        "auditor_username": pick(["Auditor_User_Name", "Auditor_Username"]),
-        "enumerator_username": pick(["_ENUMERATOR_User_name", "ENUMERATOR_User_name", "Enumerator_User_Name"]),
-        "supervisor_username": pick(["AUD_Supervisor_USER_Name", "Supervisor_USER_Name",
-                                     "Supervisor_Username", "ENU_Supervisor_User_Name"]),
+        **assignment_meta(row, lang),
         "stratum": pick(["STRATUM"]),
         "visit_status": pick(["VISIT_STATUS_AR"], ["VISIT_STATUS_EN"]) if ar else pick(["VISIT_STATUS_EN"], ["VISIT_STATUS_AR"]),
         "year": pick(["YEAR"]),

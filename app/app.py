@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import threading
+from collections import Counter
 from pathlib import Path
 from urllib.parse import quote
 
@@ -17,9 +19,9 @@ from . import tempstore
 from . import i18n
 from . import variable_reference
 from . import db_import
-from .logs_export import build_logs_workbook, build_users_workbook
-from .calc_common import (fmt, pct, period_label, get_periods, key_period, record_meta, text_val, to_num, clean,
-                          latest_text, annual_isic_series)
+from .logs_export import build_logs_workbook, build_users_workbook, build_assignments_workbook
+from .calc_common import (fmt, pct, period_label, get_periods, key_period, record_meta, assignment_meta, text_val,
+                          to_num, clean, latest_text, annual_isic_series)
 from .calculations_qes import calc_qes, qes_detail_groups, FIGURES as QES_FIGURES, LICENSE_NUMBER
 from .calculations_fdi import calc_fdi, calc_fdi_period_movement, fdi_component_groups, FIGURES as FDI_FIGURES
 
@@ -175,9 +177,20 @@ def frame_choices(visible: list[dict]) -> list[dict]:
         out.append({
             "frame_id": fid,
             "name": latest_text(row, ["ESTABLISHMENT_NAME"]),
-            "license": latest_text(row, ["Licence_Number", "License_Number"]),
+            "license": latest_text(row, LICENSE_NUMBER),
+            "licenses": frame_licences(row),
         })
     return out
+
+
+def frame_licences(row: dict) -> set[str]:
+    """Every licence number a Frame ID has had, in any quarter (lower-case) —
+    an establishment's quarters can carry different ones, e.g. IN-1000657 in
+    Q2 and CN-1002091 in Q1, and another Frame ID (a database view's) may use
+    either. Values without a digit or shorter than 5 characters ("0", "-")
+    are not licence numbers and never link Frame IDs."""
+    found = {text_val(row, p, LICENSE_NUMBER).strip().lower() for p in [*get_periods(row), None]}
+    return {v for v in found if len(v) >= 5 and any(ch.isdigit() for ch in v)}
 
 
 def license_choices(frame_options: list[dict]) -> list[dict]:
@@ -219,8 +232,17 @@ def resolve_frame(choices: list[dict], frame_id: str, license: str) -> str:
     frame_id, license = frame_id.strip(), license.strip()
     if frame_id or not license:
         return frame_id
-    hit = next((c for c in choices if c["license"].strip().lower() == license.lower()), None)
+    hit = (next((c for c in choices if c["license"].strip().lower() == license.lower()), None)
+           or next((c for c in choices if license.lower() in c.get("licenses", ())), None))
     return hit["frame_id"] if hit else license  # unknown: fall through to the normal not-found / access-denied path
+
+
+def search_choices(survey_type: str, frame_options: list[dict]) -> list[dict]:
+    """What the Frame ID / License Number search lists offer: the current
+    distribution only (auth.current_frames). frame_options keeps every Frame
+    ID the user may open, for licence grouping and remembered searches."""
+    current = auth.current_frames(survey_type)
+    return [f for f in frame_options if f["frame_id"].strip() in current]
 
 
 def search_frame(request: Request, survey_type: str, frame_options: list[dict], frame_id: str, license: str) -> str:
@@ -254,15 +276,17 @@ def remember_frame(request: Request, survey_type: str, frame_id: str) -> None:
 
 
 def licence_group(frame_options: list[dict], frame_id: str) -> list[str]:
-    """frame_id, then every other Frame ID this user can open that has the
-    same licence number — a search for one Frame ID shows them all."""
+    """frame_id, then every other Frame ID this user can open that shares a
+    licence number with it, in any quarter (frame_licences) — a search for
+    one Frame ID shows them all, e.g. a current Frame ID and the older one a
+    database view files the same establishment under."""
     target = frame_id.strip().lower()
     current = next((f for f in frame_options if f["frame_id"].strip().lower() == target), None)
     if not current:
         return [frame_id]
-    license = current["license"].strip().lower()
+    licences = current.get("licenses") or set()
     return [current["frame_id"]] + [f["frame_id"] for f in frame_options
-                                    if license and f is not current and f["license"].strip().lower() == license]
+                                    if f is not current and licences & f.get("licenses", set())]
 
 
 def figure_score(row: dict, period: str, figures: list[list[str]]) -> tuple[int, int]:
@@ -301,14 +325,44 @@ def licence_row(visible: list[dict], frame_ids: list[str], figures: list[list[st
     return row, {p: sources[p] for p in get_periods(row)}
 
 
-def add_record_details(meta: dict, frame_options: list[dict], frame_ids: list[str], sources: dict) -> None:
+_all_choices_cache: dict[str, tuple[list, list[dict]]] = {}
+
+
+def establishment_group(survey_type: str, frame_options: list[dict], frame_id: str) -> tuple[list[str], list[dict]]:
+    """The Frame IDs to combine for `frame_id` and the records to read them
+    from. A Frame ID the user may open (one of their frame_options) brings in
+    every Frame ID that shares a licence number with it — the same
+    establishment's other Frame IDs, e.g. the one a database view files its
+    current quarter under — even when those are not the user's own; a Frame
+    ID they may not open brings in nothing."""
+    target = frame_id.strip().lower()
+    if not any(f["frame_id"].strip().lower() == target for f in frame_options):
+        return [frame_id], []
+    records = db.all_records(survey_type)
+    cached = _all_choices_cache.get(survey_type)
+    if not cached or cached[0] is not records:
+        cached = _all_choices_cache[survey_type] = (records, frame_choices(records))
+    return licence_group(cached[1], frame_id), records
+
+
+def add_record_details(meta: dict, visible: list[dict], frame_options: list[dict], frame_ids: list[str],
+                       sources: dict, lang: str) -> None:
     """Fill in the Record card's licence number, every Frame ID this user can
-    open that shares it (with the quarters each one supplied), and the
-    supervisor's name from the account list."""
+    open that shares it (with the quarters each one supplied), who the Frame
+    ID searched is assigned to, and the supervisor's name from the account list."""
     current = next((f for f in frame_options if f["frame_id"] == frame_ids[0]), None)
-    meta["license"] = current["license"] if current else ""
+    newest = current["license"] if current else ""
+    others = sorted(l.upper() for l in (current or {}).get("licenses", set()) if l != newest.lower())
+    meta["license"] = " · ".join([newest, *others] if newest else others)  # every licence the Frame ID has had
     meta["license_frames"] = [{"frame_id": fid, "periods": [p for p, s in sources.items() if s["frame_id"] == fid]}
                               for fid in frame_ids]
+    if len(frame_ids) > 1:
+        # The auditor, enumerator and supervisor are the searched Frame ID's own,
+        # from its current quarter — not those of another Frame ID with the same
+        # licence that supplied the combined row's current quarter.
+        target = frame_ids[0].strip().lower()
+        own = merged_row([r for r in visible if r["frame_id"].strip().lower() == target])
+        meta.update(assignment_meta(own, lang))
     meta["supervisor_name"] = auth.account_name(meta.get("supervisor_username", ""))
 
 
@@ -391,17 +445,20 @@ def dashboard(request: Request):
     team = auth.team_members(user) if auth.is_controller(user) else None
     for t in db.SURVEY_TYPES:
         period = db.current_period(t)
-        records = auth.visible_records(user, t, period)
+        current = auth.current_frames(t)  # the current distribution only, not older Frame IDs a database import files under this quarter
+        records = [r for r in auth.visible_records(user, t, period) if r["frame_id"].strip() in current]
         access.append({
             "type": t,
             "label": SURVEY_LABELS[t],
             "period": period,
             "frame_ids": sorted({r["frame_id"] for r in records}),
         })
-        if team:  # a CONTROLLER's Home page: each employee's Frame IDs this quarter
+        if team:  # a CONTROLLER's Home page: each employee's Frame IDs this quarter (and from the auditor list)
             assigned = [(r["frame_id"], auth.assigned_values(r["data"], period)) for r in records]
             for member in team:
-                member.setdefault("counts", {})[t] = len({fid for fid, people in assigned if member["tokens"] & people})
+                listed = auth.listed_frames(t, member["tokens"]) or set()
+                member.setdefault("counts", {})[t] = len({fid for fid, people in assigned
+                                                          if member["tokens"] & people or fid.strip() in listed})
     db.add_log(user["username"], user["authorization"], "DASHBOARD_VIEW", "", client_ip(request))
     return render(request, "dashboard.html", access=access, team=team)
 
@@ -427,6 +484,7 @@ def admin_page(request: Request):
         return RedirectResponse("/dashboard")
     counts = {t: db.record_count(t) for t in db.SURVEY_TYPES}
     annual_isic_counts = {s: db.record_count(s) for s in db.ANNUAL_ISIC_SOURCES}
+    database_counts = {k: db.record_count(k, database=True) for k in db_import.DATASETS}
     db.add_log(user["username"], user["authorization"], "ADMIN_PANEL_VIEW", "", client_ip(request))
     account_users = sorted(
         (_public_user(u) for u in db.list_users()),
@@ -436,8 +494,11 @@ def admin_page(request: Request):
     database = {  # the password itself never goes back to the page
         "url": settings.get("db_url", ""), "user": settings.get("db_user", ""),
         "has_password": bool(settings.get("db_password")), "refresh_minutes": settings.get("refresh_minutes", "0"),
+        "quarter": db_import.quarter_setting(settings), "quarters": db_import.quarter_choices(settings.get("db_quarter", "")),
+        "row_quarters": db_import.ROW_QUARTERS,
         "datasets": [{"kind": k, "query": settings.get(f"query_{k}", ""), "status": db_import.status(k, settings),
-                      "loaded": db.last_load(k)} for k in db_import.DATASETS],
+                      "loaded": [p for p in (db.last_load(k, database=False), db.last_load(k, database=True)) if any(p)]}
+                     for k in db_import.DATASETS],
     }
     teams = db.all_teams()
     controllers = []
@@ -453,8 +514,9 @@ def admin_page(request: Request):
         controllers.append({**c, "team": team, "team_names": sorted(names.get(m.lower(), m) for m in members),
                             "candidates": sorted(candidates, key=lambda u: (u["username"].lower() not in team,
                                                                           (u["name"] or u["username"]).lower()))})
-    return render(request, "admin.html", counts=counts, annual_isic_counts=annual_isic_counts, database=database,
-                  controllers=controllers,
+    return render(request, "admin.html", counts=counts, annual_isic_counts=annual_isic_counts,
+                  database_counts=database_counts, database=database,
+                  controllers=controllers, assignment_lists={t: assignment_summary(t) for t in db.SURVEY_TYPES},
                   users=account_users, user_roles=USER_ROLES, logs=with_account_names(db.recent_logs(LOG_DAYS_SHOWN)),
                   message=request.query_params.get("message"), error=request.query_params.get("error"),
                   section=request.query_params.get("section", ""))
@@ -661,7 +723,41 @@ def download_variable_reference(request: Request, survey_type: str):
     )
 
 
-UPLOAD_KINDS = {*db.SURVEY_TYPES, *db.ANNUAL_ISIC_SOURCES, "ACCOUNTS"}
+UPLOAD_KINDS = {*db.SURVEY_TYPES, *db.ANNUAL_ISIC_SOURCES, "ACCOUNTS", *(f"ASSIGN_{t}" for t in db.SURVEY_TYPES)}
+
+
+def assignment_summary(survey_type: str) -> dict | None:
+    """The Admin page's view of a survey's auditor list (None without one):
+    each auditor's Frame IDs, and what does not line up with the data or the
+    accounts."""
+    rows = db.assignments(survey_type)
+    if rows is None:
+        return None
+    users = db.list_users()
+    accounts = {auth.norm_user(u["username"]) for u in users} | {auth.norm_user(u["name"]) for u in users if u.get("name")}
+    by_auditor: dict[str, dict] = {}
+    for r in rows:
+        a = by_auditor.setdefault(r["username"].lower(), {"username": r["username"], "name": r["name"], "frames": set()})
+        a["frames"].add(r["frame_id"])
+    auditors = sorted(by_auditor.values(), key=lambda a: (a["name"] or a["username"]).lower())
+    listed = {r["frame_id"].strip() for r in rows}
+    in_data = {r["frame_id"].strip() for r in db.all_records(survey_type)}
+    owners = Counter(r["frame_id"] for r in rows)
+    return {
+        "meta": json.loads(db.get_settings().get(f"assignments_{survey_type}") or "{}"),
+        "auditors": auditors,
+        "frames": len(listed),
+        "not_in_data": sorted(listed - in_data),
+        "unassigned": len(in_data - listed),
+        "no_account": [a for a in auditors if auth.norm_user(a["username"]) not in accounts
+                       and auth.norm_user(a["name"]) not in accounts],
+        "shared": sorted(f for f, n in owners.items() if n > 1),
+    }
+
+
+def assignments_redirect(message: str = "", error: str = "") -> RedirectResponse:
+    text = f"message={quote(message)}" if message else f"error={quote(error)}"
+    return RedirectResponse(f"/admin?section=assignments&{text}#assignments", status_code=303)
 
 
 @app.post("/admin/upload/{kind}/preview")
@@ -711,11 +807,28 @@ def upload_confirm(request: Request, kind: str, token: str = Form(...), sheet: s
                     db.set_team(u["username"], u["employees"])
             db.add_log(user["username"], user["authorization"], "AUTH_FILE_LOADED", f"{filename} / sheet: {sheet}", client_ip(request))
             msg = f"Account+database+loaded+({len(users)}+users)"
+        elif kind.startswith("ASSIGN_"):
+            survey = kind.removeprefix("ASSIGN_")
+            entries = excel_utils.parse_assignment_sheet(content, sheet)
+            db.replace_assignments(survey, entries, {"file": filename, "sheet": sheet, "by": user["username"]})
+            s = assignment_summary(survey)
+            notes = [f"{len(s['not_in_data'])} of its Frame IDs are not in the {survey} data" if s["not_in_data"] else "",
+                     f"{s['unassigned']} {survey} Frame IDs are in nobody's list" if s["unassigned"] else "",
+                     f"{len(s['no_account'])} auditors have no account" if s["no_account"] else ""]
+            message = f"{survey} auditor list loaded: {len(s['auditors'])} auditors, {s['frames']} Frame IDs" + "".join(f"; {n}" for n in notes if n)
+            db.add_log(user["username"], user["authorization"], f"{survey}_ASSIGNMENTS_UPLOADED",
+                       f"{filename} / sheet: {sheet} / {message}", client_ip(request))
+            return assignments_redirect(message=message)
         else:
             rows, notes = excel_utils.rows_for_survey(content, sheet)
             if not rows:
                 raise ValueError("No records were imported. Make sure the sheet has a Frame ID / FRAME_ID column.")
-            count = db.replace_records(kind, rows, filename)
+            # While the dataset has a database query, the upload holds the other
+            # quarters: it replaces only the Excel part (database.replace_records).
+            keep = bool(db.get_settings().get(f"query_{kind}", "").strip())
+            count = db.replace_records(kind, rows, filename, keep_database=keep)
+            if keep and (kept := db.record_count(kind, database=True)):
+                notes.append(f"the database import's {kept} records are kept, and replace this file's values for their quarter")
             db.add_log(user["username"], user["authorization"], f"{kind}_DATA_UPLOADED",
                        f"{filename} / sheet: {sheet} / records: {count}" + "".join(f" / {n}" for n in notes), client_ip(request))
             msg = quote(f"{kind}: {count} records loaded" + "".join(f"; {n}" for n in notes))
@@ -726,6 +839,42 @@ def upload_confirm(request: Request, kind: str, token: str = Form(...), sheet: s
         tempstore.delete(token)
 
 
+@app.post("/admin/assignments/{survey_type}/clear")
+def admin_clear_assignments(request: Request, survey_type: str):
+    """Remove a survey's auditor list: the data's assignment columns decide again."""
+    user = require_login(request)
+    if not user or not auth.is_admin(user):
+        if user:
+            db.add_log(user["username"], user["authorization"], "ADMIN_ACCESS_DENIED", f"/admin/assignments/{survey_type}/clear", client_ip(request))
+        return RedirectResponse("/dashboard")
+    survey_type = survey_type.upper()
+    if survey_type not in db.SURVEY_TYPES:
+        return assignments_redirect(error="Unknown survey.")
+    db.clear_assignments(survey_type)
+    db.add_log(user["username"], user["authorization"], f"{survey_type}_ASSIGNMENTS_REMOVED", "", client_ip(request))
+    return assignments_redirect(message=f"{survey_type} auditor list removed: the data's assignment columns decide again.")
+
+
+@app.get("/admin/assignments/{survey_type}.xlsx")
+def download_assignments(request: Request, survey_type: str):
+    """A survey's current auditor list, in the layout it is uploaded in."""
+    user = require_login(request)
+    if not user or not auth.is_admin(user):
+        if user:
+            db.add_log(user["username"], user["authorization"], "ADMIN_ACCESS_DENIED", f"/admin/assignments/{survey_type}.xlsx", client_ip(request))
+        return RedirectResponse("/dashboard")
+    survey_type = survey_type.upper()
+    summary = assignment_summary(survey_type) if survey_type in db.SURVEY_TYPES else None
+    if not summary:
+        return assignments_redirect(error=f"{survey_type} has no auditor list.")
+    db.add_log(user["username"], user["authorization"], f"{survey_type}_ASSIGNMENTS_DOWNLOADED", "", client_ip(request))
+    return StreamingResponse(
+        iter([build_assignments_workbook(summary["auditors"])]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{survey_type}_auditor_assignments.xlsx"'},
+    )
+
+
 def database_redirect(message: str = "", error: str = "") -> RedirectResponse:
     text = f"message={quote(message)}" if message else f"error={quote(error)}"
     return RedirectResponse(f"/admin?section=database&{text}#database", status_code=303)
@@ -733,9 +882,11 @@ def database_redirect(message: str = "", error: str = "") -> RedirectResponse:
 
 @app.post("/admin/database")
 def admin_database_connection(request: Request, db_url: str = Form(""), db_user: str = Form(""),
-                              db_password: str = Form(""), refresh_minutes: str = Form("0"), action: str = Form("save")):
-    """Save the database connection (JDBC URL, credentials, auto-refresh);
-    with action=test, then try it. A blank password keeps the saved one."""
+                              db_password: str = Form(""), refresh_minutes: str = Form("0"), db_quarter: str = Form(""),
+                              action: str = Form("save")):
+    """Save the database connection (JDBC URL, credentials, auto-refresh, the
+    quarter of the queries' unlabelled columns); with action=test, then try
+    it. A blank password keeps the saved one."""
     user = require_login(request)
     if not user or not auth.is_admin(user):
         if user:
@@ -752,11 +903,16 @@ def admin_database_connection(request: Request, db_url: str = Form(""), db_user:
     except ValueError:
         return database_redirect(error="Auto-refresh must be a whole number of minutes (0 = off).")
     values = {"db_url": db_url, "db_user": db_user.strip(), "refresh_minutes": str(minutes)}
+    try:
+        values["db_quarter"] = db_import.clean_quarter(db_quarter or db_import.quarter_setting(db.get_settings()))
+    except ValueError as exc:
+        return database_redirect(error=str(exc))
     if db_password:
         values["db_password"] = db_password
     db.save_settings(values)
     db.add_log(user["username"], user["authorization"], "DB_CONNECTION_SAVED",
-               f"{db_import.describe(db_url)} / auto-refresh: {minutes or 'off'} min", client_ip(request))
+               f"{db_import.describe(db_url)} / auto-refresh: {minutes or 'off'} min / quarter: {values['db_quarter']}",
+               client_ip(request))
     if action != "test":
         return database_redirect(message="Database connection saved.")
     try:
@@ -836,8 +992,8 @@ def survey_search(request: Request, survey_type: str, frame_id: str = "", licens
     period_sources = {}
 
     if frame_id:
-        frame_ids = licence_group(frame_options, frame_id)
-        row, sources = licence_row(visible, frame_ids, REPORTED_FIGURES.get(survey_type, []))
+        frame_ids, pool = establishment_group(survey_type, frame_options, frame_id)
+        row, sources = licence_row(pool, frame_ids, REPORTED_FIGURES.get(survey_type, []))
         if not row:
             error = i18n.t("not_found_or_access", lang)
             db.add_log(user["username"], user["authorization"], "RECORD_ACCESS_DENIED", f"{survey_type} / {frame_id}", client_ip(request))
@@ -859,7 +1015,7 @@ def survey_search(request: Request, survey_type: str, frame_id: str = "", licens
                     error = "No quarter/year period was detected in the uploaded columns for this record."
                 else:
                     meta = record_meta(row, lang)
-                    add_record_details(meta, frame_options, frame_ids, sources)
+                    add_record_details(meta, visible, frame_options, frame_ids, sources, lang)
             else:
                 raw_fields = {k: v for k, v in row.items() if not str(k).startswith("__")}
             db.add_log(user["username"], user["authorization"], "SURVEY_FRAME_VIEW", f"{survey_type} / {' + '.join(frame_ids)}", client_ip(request))
@@ -882,6 +1038,7 @@ def survey_search(request: Request, survey_type: str, frame_id: str = "", licens
     return render(request, template, survey_type=survey_type, frame_id=frame_id, mode=mode,
                   license=license.strip(), period_sources=period_sources,
                   quarter=quarter, quarters=quarters, frame_options=frame_options, periods=periods,
+                  search_options=search_choices(survey_type, frame_options),
                   result=result, error=error, row=row, meta=meta, raw_fields=raw_fields, movement_map=movement_map,
                   detail_map=detail_map)
 
@@ -913,8 +1070,8 @@ def compare_view(request: Request, survey_type: str, frame_id: str = "", license
     period_sources = {}
 
     if frame_id:
-        frame_ids = licence_group(frame_options, frame_id)
-        row, sources = licence_row(visible, frame_ids, REPORTED_FIGURES[survey_type])
+        frame_ids, pool = establishment_group(survey_type, frame_options, frame_id)
+        row, sources = licence_row(pool, frame_ids, REPORTED_FIGURES[survey_type])
         if not row:
             error = i18n.t("not_found_or_access", lang)
             db.add_log(user["username"], user["authorization"], "RECORD_ACCESS_DENIED", f"{survey_type} / {frame_id}", client_ip(request))
@@ -930,7 +1087,7 @@ def compare_view(request: Request, survey_type: str, frame_id: str = "", license
             calcs = [calc_period_fn(p) for p in chosen]
             if calcs:
                 meta = record_meta(row, lang)
-                add_record_details(meta, frame_options, frame_ids, sources)
+                add_record_details(meta, visible, frame_options, frame_ids, sources, lang)
             db.add_log(user["username"], user["authorization"], "PROJECT_COMPARISON_VIEW", f"{survey_type} / {' + '.join(frame_ids)}", client_ip(request))
 
     # First-to-last change across the compared quarters: Added value (QES),
@@ -1030,7 +1187,8 @@ def compare_view(request: Request, survey_type: str, frame_id: str = "", license
     template = f"compare_{survey_type.lower()}.html"
     return render(request, template, survey_type=survey_type, frame_id=frame_id,
                   license=license.strip(), period_sources=period_sources,
-                  frame_options=frame_options, all_periods=all_periods, selected_periods=[c["period"] for c in calcs], calcs=calcs,
+                  frame_options=frame_options, search_options=search_choices(survey_type, frame_options),
+                  all_periods=all_periods, selected_periods=[c["period"] for c in calcs], calcs=calcs,
                   inventory_rows=inventory_rows, employee_rows=employee_rows, isic_rows=isic_rows,
                   movement_rows=movement_rows, movement_flags=movement_flags, detail_rows=detail_rows,
                   aes_isic_rows=aes_isic_rows, fis_isic_rows=fis_isic_rows,

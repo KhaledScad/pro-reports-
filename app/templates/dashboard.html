@@ -21,7 +21,7 @@
         <a class="btn small" href="/survey/{{ a.type|lower }}">{{ t('calculations') }}</a>
         <a class="btn small ghost" href="/compare/{{ a.type|lower }}">{{ t('comparison') }}</a>
       </div>
-      {% set team = '_team' if user.authorization == 'CONTROLLER' else '' %}
+      {% set team = '_team' if user.authorization == 'CONTROLLER' else ('_all' if user.authorization in ('ADMIN', 'SUPERVISOR') else '') %}
       <div class="chip-label">
         {% if a.period %}{{ t('assigned_frame_ids' ~ team ~ '_in') }} {{ a.period|period_label(lang) }}{% else %}{{ t('assigned_frame_ids' ~ team) }}{% endif %}
         ({{ a.frame_ids|length }})

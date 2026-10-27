@@ -1,7 +1,9 @@
 """
 Login, sessions, and row-level access control.
 
-Only an ADMIN opens every Frame ID. Everyone else opens only the Frame IDs
+An ADMIN, and every account with SUPERVISOR authorization, opens every
+Frame ID (sees_all_records); the admin pages stay ADMIN-only. Everyone else
+opens only the Frame IDs
 whose assignment columns (auditor, enumerator or supervisor username / name)
 name them in the current quarter, and nothing when none do
 (visible_records); a CONTROLLER, the Frame IDs of the employees the admin
@@ -10,6 +12,10 @@ the original tool's JS) no longer limits which of those columns count.
 A quarter that leaves someone's username blank but fills in their full name
 still counts: other quarters, in either survey, show which username goes
 with that name (learned_names).
+While a survey has the admin's auditor list (Admin -> Auditor assignments),
+that list alone decides a USER's Frame IDs there, whatever quarter the data
+names someone else in; a CONTROLLER also gets their team's listed Frame
+IDs (listed_frames).
 """
 from __future__ import annotations
 
@@ -90,6 +96,12 @@ def current_user(request: Request) -> dict | None:
 
 def is_admin(user: dict | None) -> bool:
     return bool(user) and str(user.get("authorization", "")).upper() == "ADMIN"
+
+
+def sees_all_records(user: dict | None) -> bool:
+    """ADMIN and SUPERVISOR authorization: they open every Frame ID. Only
+    ADMIN also gets the admin pages (is_admin)."""
+    return bool(user) and str(user.get("authorization", "")).upper() in ("ADMIN", "SUPERVISOR")
 
 
 def is_controller(user: dict | None) -> bool:
@@ -239,8 +251,8 @@ def learned_names() -> dict[str, set[str]]:
 
 
 def visible_records(user: dict | None, survey_type: str, period: str | None = None) -> list[dict]:
-    """Records `user` can open. An admin opens everything (with `period`: the
-    records someone is assigned to in that quarter). Everyone else opens only
+    """Records `user` can open. An admin or SUPERVISOR opens everything (with
+    `period`: the records someone is assigned to in that quarter). Everyone else opens only
     the Frame IDs assigned to them — a CONTROLLER: to their team — in the
     current quarter (or in `period`), so a Frame ID handed to someone else
     since an earlier quarter is no longer theirs, and with no assignment
@@ -249,7 +261,7 @@ def visible_records(user: dict | None, survey_type: str, period: str | None = No
     if not user:
         return []
     records = db.all_records(survey_type)
-    if is_admin(user):
+    if sees_all_records(user):
         if not period:
             return list(records)
         return [r for r in records
@@ -262,7 +274,50 @@ def visible_records(user: dict | None, survey_type: str, period: str | None = No
     # A quarter with only their full name filled in (username left blank) still names them.
     learned = learned_names()
     tokens = tokens | {name for t in tokens for name in learned.get(t, ())}
+    listed = listed_frames(survey_type, tokens)
+    if listed is not None and not is_controller(user):
+        # The admin's auditor list decides for the whole project: whoever the
+        # data names in this or an earlier quarter no longer matters.
+        return [r for r in records if r["frame_id"].strip() in listed]
     when = period or db.current_period(survey_type)
     columns = ROLE_ASSIGN_COLS + GENERIC_ASSIGN_COLS
     frames = {r["frame_id"] for r in records if _has_match(r["data"], columns, tokens, when)}
+    frames |= {r["frame_id"] for r in records if listed and r["frame_id"].strip() in listed}  # a CONTROLLER's team, from the list
     return [r for r in records if r["frame_id"] in frames]
+
+
+_current_cache: dict[str, tuple[list, list | None, set[str]]] = {}
+
+
+def current_frames(survey_type: str) -> set[str]:
+    """The current project's Frame IDs — what the Home page lists: the admin's
+    auditor list when the survey has one; otherwise the Frame IDs the
+    uploaded file assigns in the current quarter, leaving out the database
+    import, which can file another quarter's (older) Frame IDs under the
+    current one. A survey with only database data uses all of it. Cached
+    until the data or the list changes."""
+    records = db.all_records(survey_type)
+    listed = db.assignments(survey_type)
+    cached = _current_cache.get(survey_type)
+    if cached and cached[0] is records and cached[1] is listed:
+        return cached[2]
+    if listed is not None:
+        frames = {r["frame_id"].strip() for r in listed}
+    else:
+        period = db.current_period(survey_type)
+        uploaded = [r for r in records if not str(r.get("source_file") or "").startswith("Database")]
+        frames = {r["frame_id"].strip() for r in (uploaded or records)
+                  if any(clean(r["data"][k]) for k in _matching_keys(tuple(row_keys(r["data"])), tuple(ROLE_ASSIGN_COLS), period))}
+    _current_cache[survey_type] = (records, listed, frames)
+    return frames
+
+
+def listed_frames(survey_type: str, tokens: set[str]) -> set[str] | None:
+    """The Frame IDs the admin's auditor list for `survey_type` gives anyone
+    these tokens name (by username or auditor name); None when the survey
+    has no list (see database.assignments)."""
+    rows = db.assignments(survey_type)
+    if rows is None:
+        return None
+    return {r["frame_id"].strip() for r in rows
+            if norm_user(r["username"]) in tokens or (r["name"] and norm_user(r["name"]) in tokens)}

@@ -12,7 +12,7 @@ from collections import Counter
 
 from openpyxl import load_workbook
 
-from .calc_common import normalize_header
+from .calc_common import normalize_header, period_label
 
 FRAME_ID_TOKENS = {
     "frameid", "frame", "id", "establishmentid", "establishmentnumber",
@@ -303,12 +303,44 @@ def long_rows_to_wide(rows: list[dict]) -> list[dict] | None:
     return out
 
 
-def records_from_rows(rows: list[dict], source: str) -> tuple[list[dict], list[str]]:
+def label_plain_rows(rows: list[dict], quarter: str) -> tuple[list[dict], list[str]] | None:
+    """`rows` with every column but the Frame ID under `quarter`'s Q#_YYYY_
+    prefix (LIC_NO -> Q3_2026_LIC_NO), whatever the rows' own YEAR / QUARTER
+    say — a database view that returns one quarter's figures under plain
+    names. Also returns notes for the import message. None when some column
+    already carries a quarter label: those rows are placed as a sheet's are."""
+    headers = list(rows[0]) if rows else []
+    all_headers = set(headers)
+    if not headers or any(_split_header(h, all_headers)[1] for h in headers):
+        return None
+    out = [{k if _is_frame_header_cell(k) else f"{quarter}_{k}": v for k, v in row.items()} for row in rows]
+    notes = [f"{len(headers)} columns read as {period_label(quarter)} ({quarter}_)"]
+    year = next((h for h in headers if normalize_header(h) == "year"), None)
+    quarter_col = next((h for h in headers if normalize_header(h) == "quarter"), None)
+    if year and quarter_col:
+        own = Counter(q for row in rows if (q := _cell_quarter(row.get(year), row.get(quarter_col))) and q != quarter)
+        if own:
+            notes.append(f"{sum(own.values())} rows' own YEAR / QUARTER say "
+                         + ", ".join(period_label(q) for q, _ in own.most_common()))
+    frames = Counter(get_frame_id(row) for row in out)
+    frames.pop("", None)  # rows without a Frame ID are left out anyway
+    repeated = sum(1 for n in frames.values() if n > 1)
+    if repeated:
+        notes.append(f"{repeated} Frame IDs are on more than one row (their last row counts)")
+    return out, notes
+
+
+def records_from_rows(rows: list[dict], source: str, quarter: str | None = None) -> tuple[list[dict], list[str]]:
     """One sheet's (or one query's) rows as {frame_id, data} records, with
     each quarter's columns under their Q#_YYYY_ prefix, skipping rows without
-    a Frame ID. Also returns notes on how quarter blocks were placed."""
-    wide = long_rows_to_wide(rows)
-    if wide is not None:
+    a Frame ID. Also returns notes on how quarter blocks were placed. With
+    `quarter` (Q#_YYYY), rows whose columns carry no quarter label are all
+    that quarter's (label_plain_rows)."""
+    labelled = label_plain_rows(rows, quarter) if quarter else None
+    wide = long_rows_to_wide(rows) if labelled is None else None
+    if labelled is not None:
+        rows, notes = labelled
+    elif wide is not None:
         rows, notes = wide, [f"{len(wide)} rows read as one row per quarter (YEAR / QUARTER columns)"]
     else:
         rows, notes = normalize_quarter_columns(rows)
@@ -336,6 +368,42 @@ def rows_for_survey(file_bytes: bytes, sheet_name: str | None = None) -> tuple[l
         out += records
         notes += sheet_notes
     return out, notes
+
+
+def _frame_id_text(value) -> str:
+    """A Frame ID as text — Excel may hand a number over as 1206003918.0."""
+    if isinstance(value, float) and value.is_integer():
+        value = int(value)
+    return str(value).strip()
+
+
+def parse_assignment_sheet(file_bytes: bytes, sheet_name: str | None = None) -> list[dict]:
+    """The auditor list (Admin -> Auditor assignments): one row per auditor
+    with their Frame IDs in one cell, separated by commas — the columns
+    Concat_Frame ID, Auditor Name and Auditor_User_Name (Concat_Establishment
+    Name is not needed). Returns [{username, name, frame_ids}]."""
+    entries = []
+    for rows in read_workbook(file_bytes, sheet_name).values():
+        headers = list(rows[0]) if rows else []
+        norm = {h: normalize_header(h) for h in headers}
+        frame_col = next((h for h in headers if "frameid" in norm[h]), None)
+        user_col = next((h for h in headers if "username" in norm[h]), None)
+        name_col = next((h for h in headers if norm[h].endswith("name") and "username" not in norm[h]
+                         and "establishment" not in norm[h]), None)
+        if not frame_col or not (user_col or name_col):
+            continue
+        for row in rows:
+            frame_ids = [f for f in (_frame_id_text(x) for x in
+                                     (re.split(r"[,;\n]+", str(row[frame_col])) if isinstance(row[frame_col], str)
+                                      else [row[frame_col]])) if f and f.lower() != "none"]
+            username = str(row.get(user_col) or "").strip() if user_col else ""
+            name = str(row.get(name_col) or "").strip() if name_col else ""
+            if frame_ids and (username or name):
+                entries.append({"username": username or name, "name": name, "frame_ids": frame_ids})
+    if not entries:
+        raise ValueError("No auditor list found: the sheet needs a Frame ID column (e.g. Concat_Frame ID) "
+                         "and an Auditor_User_Name or Auditor Name column.")
+    return entries
 
 
 def _is_account_header_cell(value) -> bool:

@@ -40,18 +40,20 @@ from __future__ import annotations
 import re
 from .calc_common import text_val, num_val, get_periods, period_label, fmt, find_key
 
+# The Excel file's names first, then the database view's (AES17.VW_QESIB_*:
+# LIC_NO, MAIN_REVENUE, T_4_TOTA = table 4 total, EMPLYEE_COMPENSATION as spelt there, …).
 LICENSE_NUMBER = ["Licence_Number", "License_Number", "LIC_NO"]
 
-REVENUE = ["Total_Revenue"]
-EXPENSES = ["Total_Expenses"]
-OPS_COST = ["Operations_Cost"]
-EMP_SALARY = ["Employee_Salary"]
-RAW_MATERIAL = ["RAW_Material"]
-BANK_CHARGES = ["Banking_Charges", "Bank_Charges", "T4_3_5_BANK_CHARGE"]
+REVENUE = ["Total_Revenue", "MAIN_REVENUE"]
+EXPENSES = ["Total_Expenses", "T_4_TOTA", "T_4_TOTAL"]
+OPS_COST = ["Operations_Cost", "T_4_COST_OF_OPERATIONAL"]
+EMP_SALARY = ["Employee_Salary", "EMPLYEE_COMPENSATION", "EMPLOYEE_COMPENSATION"]
+RAW_MATERIAL = ["RAW_Material", "T_4_RAW_MATERIAL"]
+BANK_CHARGES = ["Banking_Charges", "Bank_Charges", "T4_3_5_BANK_CHARGE", "T_4_BANKING_CHARGES"]
 INV_BEGIN = ["Total_Finished_Goods_Begining_Of_period", "Finished_Goods_Begining_Of_period",
              "Finished_Goods_Beginning_Of_period", "Inventory_Start"]
 INV_END = ["Total_Finished_Goods_End_of_period", "Finished_Goods_End_of_period", "Inventory_End"]
-IC_FILE = ["IC"]
+IC_FILE = ["IC", "INTERMEDIATE_CONSUMPTION"]
 EMPLOYEES = ["TOTAL_EMPLOYEES"]
 COMMENT_REV = ["Comment_Revenue"]
 COMMENT_EXP = ["Comment_Expense"]

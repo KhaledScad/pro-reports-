@@ -50,5 +50,17 @@ def build_logs_workbook(logs: list[dict]) -> bytes:
     return _build_workbook("Activity log", LOG_COLUMNS, [{**log, "time": uae_time(log["time"])} for log in logs])
 
 
+ASSIGNMENT_COLUMNS = [("Concat_Frame ID", 80, "frame_ids"), ("Auditor Name", 36, "name"),
+                      ("Auditor_User_Name", 22, "username"), ("Count", 10, "count")]
+
+
+def build_assignments_workbook(auditors: list[dict]) -> bytes:
+    """A survey's auditor list in the layout it is uploaded in, so it can be
+    edited and uploaded again: one row per auditor, Frame IDs comma-separated."""
+    rows = [{"frame_ids": ",".join(sorted(a["frames"])), "name": a["name"], "username": a["username"],
+             "count": len(a["frames"])} for a in auditors]
+    return _build_workbook("Auditor assignments", ASSIGNMENT_COLUMNS, rows)
+
+
 def build_users_workbook(users: list[dict]) -> bytes:
     return _build_workbook("Users", USER_COLUMNS, users)
