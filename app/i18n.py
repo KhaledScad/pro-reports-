@@ -8,6 +8,8 @@ TRANSLATIONS: dict[str, tuple[str, str]] = {
     "nav_admin": ("Admin", "الإدارة"),
     "logout": ("Logout", "تسجيل الخروج"),
     "language": ("العربية", "English"),
+    "theme_dark": ("Dark mode", "الوضع الداكن"),
+    "theme_light": ("Light mode", "الوضع الفاتح"),
     # login
     "login_title": ("Login", "تسجيل الدخول"),
     "login_text": ("Enter your username and password. Access is based on your Authorization / Job value from the uploaded Account sheet.",
@@ -188,8 +190,8 @@ TRANSLATIONS: dict[str, tuple[str, str]] = {
                         "0 = متوقف: لا تتغير البيانات إلا عند الضغط على «استيراد الآن». وإلا يُعاد استيراد كل مجموعة بيانات لها استعلام وفق هذا الجدول، فتعرض الصفحات أحدث البيانات دائماً؛ ولا يُعاد كتابة شيء إذا لم تتغير البيانات. استخدم حساب قاعدة بيانات للقراءة فقط."),
     "db_quarter": ("Quarter of the query columns", "ربع أعمدة الاستعلام"),
     "db_quarter_rows": ("Each row's own YEAR / QUARTER", "من عمودي YEAR / QUARTER في كل صف"),
-    "db_quarter_hint": ("A QES or FDI query whose columns have no quarter prefix (LIC_NO, MAIN_REVENUE, …) is read as this quarter: every column but the Frame ID gets its prefix (Q3_2026_LIC_NO, …), like the newest block of the Excel file. It starts at the latest ended quarter; pick another one when the view holds an earlier quarter, or \"Each row's own YEAR / QUARTER\" for a view with one row per quarter. AES and FIS are annual and keep their columns as they are.",
-                        "يُقرأ استعلام QES أو FDI الذي لا تحمل أعمدته بادئة الربع (LIC_NO وMAIN_REVENUE، …) على أنه بيانات هذا الربع: يحصل كل عمود عدا رقم الإطار على بادئته (Q3_2026_LIC_NO، …) مثل أحدث مجموعة أعمدة في ملف الإكسل. يبدأ بآخر ربع منتهٍ؛ اختر ربعاً آخر إذا كان العرض يحمل ربعاً سابقاً، أو «من عمودي YEAR / QUARTER في كل صف» لعرض فيه صف لكل ربع. أما AES وFIS فسنوية وتبقى أعمدتها كما هي."),
+    "db_quarter_hint": ("A QES or FDI query whose columns have no quarter prefix (LIC_NO, MAIN_REVENUE, …) is read as this quarter: every column but the Frame ID gets its prefix (Q3_2026_LIC_NO, …), like the newest block of the Excel file. A row that returns its own YEAR and QUARTER goes under that quarter instead — a view whose rows say Q1 2026 is filed as Q1. The database only supplies the current (newest) quarter; earlier quarters always come from the Excel upload. AES and FIS are annual and keep their columns as they are.",
+                        "يُقرأ استعلام QES أو FDI الذي لا تحمل أعمدته بادئة الربع (LIC_NO وMAIN_REVENUE، …) على أنه بيانات هذا الربع: يحصل كل عمود عدا رقم الإطار على بادئته (Q3_2026_LIC_NO، …) مثل أحدث مجموعة أعمدة في ملف الإكسل. أما الصف الذي يعيد عمودي YEAR وQUARTER الخاصين به فيُسجَّل تحت ربعه — فالعرض الذي تقول صفوفه الربع الأول 2026 يُسجَّل كالربع الأول. ولا تزوّد قاعدة البيانات إلا الربع الحالي (الأحدث)؛ أما الأرباع السابقة فتأتي دائماً من ملف الإكسل المرفوع. أما AES وFIS فسنوية وتبقى أعمدتها كما هي."),
     "db_save": ("Save connection", "حفظ الاتصال"),
     "db_test": ("Save & test connection", "حفظ واختبار الاتصال"),
     "db_queries_title": ("Queries", "الاستعلامات"),
@@ -355,8 +357,8 @@ TRANSLATIONS: dict[str, tuple[str, str]] = {
 
     # 1. getting started
     "guide_start_title": ("1. Getting started", "1. البدء"),
-    "guide_start_home": ("After you log in you land on the Home page. It has one box per survey (QES and FDI) with a Calculations button, a Comparison button, and the Frame IDs assigned to you in the current quarter. The menu at the top (Home, QES, FDI, Guide) takes you to any page, and the language button next to your name switches between English and Arabic.",
-                         "بعد تسجيل الدخول تظهر الصفحة الرئيسية. فيها مربع لكل مسح (QES وFDI) يحتوي على زر الاحتساب وزر المقارنة وأرقام الإطار المخصصة لك في الربع الحالي. تنقلك القائمة في الأعلى (الرئيسية، QES، FDI، الدليل) إلى أي صفحة، ويبدّل زر اللغة بجانب اسمك بين العربية والإنجليزية."),
+    "guide_start_home": ("After you log in you land on the Home page. It has one box per survey (QES and FDI) with a Calculations button, a Comparison button, and the Frame IDs assigned to you in the current quarter. The menu at the top (Home, QES, FDI, Guide) takes you to any page, the language button next to your name switches between English and Arabic, and the Dark mode / Light mode button switches the page colors (your choice is remembered in this browser).",
+                         "بعد تسجيل الدخول تظهر الصفحة الرئيسية. فيها مربع لكل مسح (QES وFDI) يحتوي على زر الاحتساب وزر المقارنة وأرقام الإطار المخصصة لك في الربع الحالي. تنقلك القائمة في الأعلى (الرئيسية، QES، FDI، الدليل) إلى أي صفحة، ويبدّل زر اللغة بجانب اسمك بين العربية والإنجليزية، ويبدّل زر الوضع الداكن / الوضع الفاتح ألوان الصفحة (ويُحفظ اختيارك في هذا المتصفح)."),
     "guide_start_access": ("You can search and open only the Frame IDs assigned to you in the current quarter — as auditor, enumerator or supervisor — with their full history; a Controller, those of the employees an admin has placed under them. When an admin has uploaded the project's auditor list for a survey, that list decides instead: each auditor opens exactly the Frame IDs listed for them. With nothing assigned, no Frame IDs or data are shown. Admins and supervisors open every Frame ID. The Home page lists the Frame IDs you can open. Each page you open is recorded in the activity log.",
                            "يمكنك البحث عن أرقام الإطار المخصصة لك في الربع الحالي فقط وفتحها — كمدقق أو باحث أو مشرف — مع سجلها الكامل؛ وللمراقب: أرقام الموظفين الذين وضعهم المسؤول تحت إشرافه. وإذا رفع المسؤول قائمة مدققي المشروع لمسحٍ ما، فهي التي تقرر بدلاً من ذلك: يفتح كل مدقق أرقام الإطار المدرجة له فقط. وإن لم يُخصص لك شيء، فلا تظهر أي أرقام إطار أو بيانات. ويفتح المسؤولون والمشرفون كل أرقام الإطار. تعرض الصفحة الرئيسية أرقام الإطار التي يمكنك فتحها. تُسجَّل كل صفحة تفتحها في سجل النشاط."),
     "guide_start_pages": ("Each survey has two pages. Calculations works out the formulas for one quarter or for several, and shows every figure it used. Comparison puts the selected quarters side by side, runs the checks, and draws the trend charts.",

@@ -304,24 +304,26 @@ def long_rows_to_wide(rows: list[dict]) -> list[dict] | None:
 
 
 def label_plain_rows(rows: list[dict], quarter: str) -> tuple[list[dict], list[str]] | None:
-    """`rows` with every column but the Frame ID under `quarter`'s Q#_YYYY_
-    prefix (LIC_NO -> Q3_2026_LIC_NO), whatever the rows' own YEAR / QUARTER
-    say — a database view that returns one quarter's figures under plain
-    names. Also returns notes for the import message. None when some column
-    already carries a quarter label: those rows are placed as a sheet's are."""
+    """`rows` with every column but the Frame ID under a Q#_YYYY_ prefix — a
+    database view that returns one quarter's figures under plain names
+    (LIC_NO -> Q3_2026_LIC_NO). A row whose own YEAR / QUARTER name a quarter
+    goes under that quarter: the data's own label wins, so a view holding
+    Q1 2026 is never filed as Q3 2026. `quarter` serves rows without one.
+    Also returns notes for the import message. None when some column already
+    carries a quarter label: those rows are placed as a sheet's are."""
     headers = list(rows[0]) if rows else []
     all_headers = set(headers)
     if not headers or any(_split_header(h, all_headers)[1] for h in headers):
         return None
-    out = [{k if _is_frame_header_cell(k) else f"{quarter}_{k}": v for k, v in row.items()} for row in rows]
-    notes = [f"{len(headers)} columns read as {period_label(quarter)} ({quarter}_)"]
     year = next((h for h in headers if normalize_header(h) == "year"), None)
     quarter_col = next((h for h in headers if normalize_header(h) == "quarter"), None)
-    if year and quarter_col:
-        own = Counter(q for row in rows if (q := _cell_quarter(row.get(year), row.get(quarter_col))) and q != quarter)
-        if own:
-            notes.append(f"{sum(own.values())} rows' own YEAR / QUARTER say "
-                         + ", ".join(period_label(q) for q, _ in own.most_common()))
+    out, placed = [], Counter()
+    for row in rows:
+        q = (_cell_quarter(row.get(year), row.get(quarter_col)) if year and quarter_col else None) or quarter
+        placed[q] += 1
+        out.append({k if _is_frame_header_cell(k) else f"{q}_{k}": v for k, v in row.items()})
+    notes = [f"{n} rows read as {period_label(q)} ({q}_)" + ("" if q == quarter else " — their own YEAR / QUARTER")
+             for q, n in placed.most_common()]
     frames = Counter(get_frame_id(row) for row in out)
     frames.pop("", None)  # rows without a Frame ID are left out anyway
     repeated = sum(1 for n in frames.values() if n > 1)

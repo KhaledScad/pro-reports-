@@ -56,7 +56,7 @@
   <div class="grid grid-2">
     {% for tp in ["QES", "FDI"] %}
     {% set s = assignment_lists[tp] %}
-    <div style="border:1px solid var(--border); border-radius:12px; padding:12px 14px; background:#fafafa;">
+    <div style="border:1px solid var(--border); border-radius:12px; padding:12px 14px; background:var(--surface-2);">
       <h4 style="margin:0 0 6px;">{{ tp }}</h4>
       {% if s %}
       <p class="small" style="margin:0;"><strong class="positive">{{ t('assign_active') }}</strong>:
@@ -306,7 +306,7 @@
   {% if error %}<div class="notice bad">{{ error }}</div>{% endif %}
   {% endif %}
   {% for c in controllers %}
-  <details class="controller-team" style="margin-top:10px; border:1px solid var(--border); border-radius:12px; padding:10px 12px; background:#fafafa;" {{ 'open' if controllers|length == 1 }}>
+  <details class="controller-team" style="margin-top:10px; border:1px solid var(--border); border-radius:12px; padding:10px 12px; background:var(--surface-2);" {{ 'open' if controllers|length == 1 }}>
     <summary style="cursor:pointer;"><strong>{{ c.name or c.username }}</strong> <span class="muted small">({{ c.username }})</span>
       &middot; {{ c.team|length }} {{ t('controller_employees') }}{% if c.team_names %}<span class="muted small" style="display:block; margin-top:4px;">{{ c.team_names|join(', ') }}</span>{% endif %}</summary>
     <form method="post" action="/admin/controllers/{{ c.username|urlencode }}" style="margin-top:10px;">

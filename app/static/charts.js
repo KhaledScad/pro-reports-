@@ -6,6 +6,15 @@
   var PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"];
   var MAX_SERIES = 8;
 
+  // Series colors come from the --viz-N tokens in style.css so they follow the
+  // light/dark theme; PALETTE is only the fallback if the stylesheet is missing.
+  function themePalette() {
+    var css = getComputedStyle(document.documentElement);
+    return PALETTE.map(function (fallback, i) {
+      return css.getPropertyValue("--viz-" + (i + 1)).trim() || fallback;
+    });
+  }
+
   function fmtNum(n) {
     if (n === null || n === undefined || isNaN(n)) return "0";
     var abs = Math.abs(n);
@@ -314,8 +323,8 @@
       var color = colorOf(key);
       seriesData[key].forEach(function (v, i) {
         var dot = svgEl("circle", {
-          cx: xAt(i), cy: y(v), r: 5, fill: color, stroke: "#1f2937", "stroke-width": 1.5,
-          class: "chart-mark", tabindex: "0", "aria-label": labels[i] + " " + nameOf(key) + " " + fmtNum(v),
+          cx: xAt(i), cy: y(v), r: 5, fill: color,
+          class: "chart-mark chart-dot", tabindex: "0", "aria-label": labels[i] + " " + nameOf(key) + " " + fmtNum(v),
         });
         attachMarkEvents(dot, opts.tooltip, opts.wrap, function () {
           return { title: labels[i], rows: [{ name: nameOf(key), value: v, color: color }] };
@@ -354,8 +363,8 @@
     }
 
     function colorMap(seriesKeys) {
-      var map = {};
-      seriesKeys.forEach(function (k, i) { map[k] = PALETTE[i % PALETTE.length]; });
+      var map = {}, palette = themePalette();
+      seriesKeys.forEach(function (k, i) { map[k] = palette[i % palette.length]; });
       return map;
     }
 
@@ -365,7 +374,7 @@
         var dot = label.querySelector(".var-chip-dot");
         var checked = cb.checked;
         label.classList.toggle("is-checked", checked);
-        dot.style.background = checked ? colors[cb.value] : "#e5e7eb";
+        dot.style.background = checked ? colors[cb.value] : "";
         var disable = !checked && seriesKeys.length >= MAX_SERIES;
         cb.disabled = disable;
         label.classList.toggle("is-disabled", disable);
@@ -411,6 +420,7 @@
       draw();
     });
     window.addEventListener("resize", draw);
+    document.addEventListener("themechange", draw);
     draw();
   };
 })();

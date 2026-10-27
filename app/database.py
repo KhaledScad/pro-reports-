@@ -625,29 +625,57 @@ def all_records(survey_type: str) -> list[dict]:
 
 
 def _database_quarters_only(records: list[dict]) -> None:
-    """The quarter the database import holds (Q3_2026) comes from the
-    database alone: drop the Excel upload's columns for that quarter, so a
-    Frame ID the database does not return shows no figures for it instead of
-    the Excel file's. Two kinds of the Excel quarter's columns stay, as they
-    are not figures: the assignment columns (auditor / enumerator / supervisor
+    """Excel for the earlier quarters, the database for the current one. The
+    current quarter is the newest quarter in the data. A database import
+    counts only for it: a database row's columns for any earlier quarter are
+    dropped (the Excel upload holds those — e.g. a view whose rows say Q1
+    2026), and a database record left with no quarter at all is dropped.
+    When the database holds the current quarter, it comes from the database
+    alone: the Excel upload's figures for it are dropped, so a Frame ID the
+    database does not return shows no figures for it instead of the Excel
+    file's. Two kinds of the Excel quarter's columns stay, as they are not
+    figures: the assignment columns (auditor / enumerator / supervisor
     usernames and names) — the database queries do not return usernames, and
     access to a Frame ID follows them — and the licence number, which groups
-    Frame IDs (app.licence_group): without it a Frame ID falls back to an
-    older quarter's licence and its earlier quarters would come from other
-    establishments. `records` are sorted, Excel part first."""
+    Frame IDs (app.licence_group). `records` are sorted, Excel part first."""
     from .auth import GENERIC_ASSIGN_COLS, ROLE_ASSIGN_COLS, _matching_keys  # deferred: auth imports this module
-    from .calc_common import key_period
+    from .calc_common import key_period, get_periods
     from .calculations_qes import LICENSE_NUMBER
 
-    db_quarters = {key_period(k) for r in records if _from_database(r) for k in r["data"]} - {None}
-    if not db_quarters:
+    if not any(_from_database(r) for r in records):
         return  # no database import: the Excel upload holds every quarter
+    _refile_by_own_quarter([r for r in records if _from_database(r)])
+    periods = get_periods(dict.fromkeys(k for r in records for k in r["data"]))
+    current = periods[-1] if periods else None
+    for r in records:
+        if _from_database(r):
+            r["data"] = {k: v for k, v in r["data"].items() if key_period(k) in (current, None)}
+    records[:] = [r for r in records if not _from_database(r) or any(key_period(k) for k in r["data"])]
+    if not any(_from_database(r) for r in records):
+        return  # the database holds no current-quarter figures: the Excel upload holds every quarter
     assignment = tuple(ROLE_ASSIGN_COLS + GENERIC_ASSIGN_COLS + LICENSE_NUMBER)
     for r in records:
         if _from_database(r):
             continue
         keep = set(_matching_keys(tuple(r["data"]), assignment))
-        r["data"] = {k: v for k, v in r["data"].items() if key_period(k) not in db_quarters or k in keep}
+        r["data"] = {k: v for k, v in r["data"].items() if key_period(k) != current or k in keep}
+
+
+def _refile_by_own_quarter(records: list[dict]) -> None:
+    """Database rows stored under one quarter's prefix whose own YEAR /
+    QUARTER cells name another quarter (imported before an import honoured
+    them: Q3_2026_YEAR 2026, Q3_2026_QUARTER 'Q1') move to that quarter, as
+    excel_utils.label_plain_rows now files them on import."""
+    from .calc_common import key_period, normalize_header
+    from .excel_utils import _cell_quarter
+
+    for r in records:
+        d = r["data"]
+        for p in sorted({key_period(k) for k in d} - {None}):
+            cells = {normalize_header(k[len(p) + 1:]): k for k in d if key_period(k) == p}
+            own = _cell_quarter(d.get(cells["year"]), d.get(cells["quarter"])) if {"year", "quarter"} <= cells.keys() else None
+            if own and own != p:
+                r["data"] = d = {(own + k[len(p):] if key_period(k) == p else k): v for k, v in d.items()}
 
 
 def _align_database_names(records: list[dict]) -> None:
